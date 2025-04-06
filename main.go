@@ -12,7 +12,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"log/slog"
 	"net/http"
-	"sync/atomic"
 	"time"
 )
 
@@ -127,29 +126,29 @@ func main() {
 		panic(err)
 	}
 
-	subscribersReadModel := NewSubscriberReadModel(db)
+	subscriberProjection := NewSubscriberProjection(db)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
 		"SubscriberProjection",
-		cqrs.NewGroupEventHandler(subscribersReadModel.OnSubscribed),
-		cqrs.NewGroupEventHandler(subscribersReadModel.OnUnsubscribed),
-		cqrs.NewGroupEventHandler(subscribersReadModel.OnEmailUpdated),
+		cqrs.NewGroupEventHandler(subscriberProjection.OnSubscribed),
+		cqrs.NewGroupEventHandler(subscriberProjection.OnUnsubscribed),
+		cqrs.NewGroupEventHandler(subscriberProjection.OnEmailUpdated),
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	activityReadModel := NewActivityTimelineModel(db)
+	activityProjection := NewActivityTimelineProjection(db)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
 		"ActivityTimelineProjection",
-		cqrs.NewGroupEventHandler(activityReadModel.OnSubscribed),
-		cqrs.NewGroupEventHandler(activityReadModel.OnUnsubscribed),
-		cqrs.NewGroupEventHandler(activityReadModel.OnEmailUpdated),
+		cqrs.NewGroupEventHandler(activityProjection.OnSubscribed),
+		cqrs.NewGroupEventHandler(activityProjection.OnUnsubscribed),
+		cqrs.NewGroupEventHandler(activityProjection.OnEmailUpdated),
 	)
 	if err != nil {
 		panic(err)
@@ -157,20 +156,16 @@ func main() {
 
 	slog.Info("Starting service")
 
-	var seq atomic.Uint64
-
 	httpRouter := http.NewServeMux()
 	httpRouter.HandleFunc("POST /subscribe", func(w http.ResponseWriter, r *http.Request) {
 		subscriberID := watermill.NewUUID()
 
-		vi := seq.Add(1)
 		c := Subscribe{
 			Metadata:     GenerateMessageMetadata(subscriberID),
 			SubscriberId: subscriberID,
-			Email:        fmt.Sprintf("user%d@example.com", vi),
 		}
 
-		err := c.Handle(r.Context(), eventBus)
+		err := c.Handle(r.Context(), eventBus, subscriberProjection)
 
 		if err != nil {
 			slog.Error("Error sending Subscribe command", "err", err)
@@ -179,8 +174,7 @@ func main() {
 		}
 
 		m := map[string]string{
-			"id":  subscriberID,
-			"seq": fmt.Sprintf("%v", vi),
+			"id": subscriberID,
 		}
 		b, err := json.Marshal(m)
 		if err != nil {
@@ -192,16 +186,14 @@ func main() {
 	})
 
 	httpRouter.HandleFunc("PUT /update/{id}", func(w http.ResponseWriter, r *http.Request) {
-		vi := seq.Load()
-
 		subscriberID := r.PathValue("id")
 
 		c := UpdateEmail{
 			Metadata:     GenerateMessageMetadata(subscriberID),
 			SubscriberId: subscriberID,
-			NewEmail:     fmt.Sprintf("updated%d@example.com", vi),
+			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
 		}
-		err := c.Handle(r.Context(), eventBus, subscribersReadModel)
+		err := c.Handle(r.Context(), eventBus, subscriberProjection)
 		if err != nil {
 			slog.Error("Error sending UpdateEmail command", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -226,7 +218,7 @@ func main() {
 			Metadata:     GenerateMessageMetadata(subscriberID),
 			SubscriberId: subscriberID,
 		}
-		err := c.Handle(r.Context(), eventBus, subscribersReadModel)
+		err := c.Handle(r.Context(), eventBus, subscriberProjection)
 		if err != nil {
 			slog.Error("Error sending Unsubscribe command", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -245,7 +237,7 @@ func main() {
 	})
 
 	httpRouter.HandleFunc("GET /subscribers", func(w http.ResponseWriter, r *http.Request) {
-		subscribers, err := subscribersReadModel.GetSubscribers(r.Context())
+		subscribers, err := subscriberProjection.GetSubscribers(r.Context())
 		if err != nil {
 			slog.Error("Error getting subscribers", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -261,7 +253,7 @@ func main() {
 	})
 
 	httpRouter.HandleFunc("GET /activities", func(w http.ResponseWriter, r *http.Request) {
-		activities, err := activityReadModel.GetActivities(r.Context())
+		activities, err := activityProjection.GetActivities(r.Context())
 		if err != nil {
 			slog.Error("Error getting activities", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)

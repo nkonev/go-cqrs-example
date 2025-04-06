@@ -15,7 +15,7 @@ type SubscriberProjection struct {
 	db *sql.DB
 }
 
-func NewSubscriberReadModel(db *sql.DB) *SubscriberProjection {
+func NewSubscriberProjection(db *sql.DB) *SubscriberProjection {
 	return &SubscriberProjection{
 		db: db,
 	}
@@ -56,6 +56,19 @@ func (m *SubscriberProjection) GetSubscriber(ctx context.Context, subscriberId u
 		return "", err
 	}
 	return e, nil
+}
+
+func (m *SubscriberProjection) GetNextEmailId(ctx context.Context) (int64, error) {
+	r := m.db.QueryRowContext(ctx, "select nextval('email_id_sequence')")
+	if r.Err() != nil {
+		return 0, r.Err()
+	}
+	var eid int64
+	err := r.Scan(&eid)
+	if err != nil {
+		return 0, err
+	}
+	return eid, nil
 }
 
 func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
@@ -115,7 +128,7 @@ type ActivityTimelineProjection struct {
 	db *sql.DB
 }
 
-func NewActivityTimelineModel(db *sql.DB) *ActivityTimelineProjection {
+func NewActivityTimelineProjection(db *sql.DB) *ActivityTimelineProjection {
 	return &ActivityTimelineProjection{
 		db: db,
 	}

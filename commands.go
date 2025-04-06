@@ -8,33 +8,39 @@ import (
 )
 
 type Subscribe struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
-	Email        string           `json:"omitempty"`
+	Metadata     *MessageMetadata
+	SubscriberId string
 }
 
 type Unsubscribe struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
+	Metadata     *MessageMetadata
+	SubscriberId string
 }
 
 type UpdateEmail struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
-	NewEmail     string           `json:"new_email"`
+	Metadata     *MessageMetadata
+	SubscriberId string
+	NewEmail     string
 }
 
-func (s *Subscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus) error {
+func (s *Subscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
+	emailId, err := subscriberProjection.GetNextEmailId(ctx)
+	if err != nil {
+		return err
+	}
+
+	email := fmt.Sprintf("user%d@example.com", emailId)
+
 	return eventBus.Publish(ctx, &SubscriberSubscribed{
 		Metadata:     s.Metadata,
 		SubscriberId: s.SubscriberId,
-		Email:        s.Email,
+		Email:        email,
 	})
 }
 
-func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberProjection) error {
+func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
 	// here is logic with business rules validation
-	subscriber, err := subscribersReadModel.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
+	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
 	if err != nil {
 		return err
 	}
@@ -48,9 +54,9 @@ func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subsc
 	})
 }
 
-func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberProjection) error {
+func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
 	// here is logic with business rules validation
-	subscriber, err := subscribersReadModel.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
+	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
 	if err != nil {
 		return err
 	}

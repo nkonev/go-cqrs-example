@@ -1,3 +1,5 @@
+create sequence email_id_sequence;
+
 create table subscriber(
     subscriber_id uuid primary key,
     email varchar(256) not null,
