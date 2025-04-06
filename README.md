@@ -44,4 +44,10 @@ curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
 curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
 
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+
+docker compose logs -f kafka
+docker compose logs -f postgresql
+docker compose exec -it postgresql psql -U postgres
+select * from subscriber order by created_timestamp;
+select * from activity_timeline order by created_timestamp;
 ```

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/ThreeDotsLabs/watermill"
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync/atomic"
+	"time"
 )
 
 func main() {
@@ -113,12 +115,24 @@ func main() {
 		panic(err)
 	}
 
-	subscribersReadModel := NewSubscriberReadModel()
+	db, err := sql.Open("pgx", "postgres://postgres:postgresqlPassword@localhost:5432/postgres?sslmode=disable&application_name=cqrs-app")
+	if err != nil {
+		panic(err)
+	}
+	db.SetConnMaxLifetime(time.Second * 30)
+	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(16)
+	err = db.Ping()
+	if err != nil {
+		panic(err)
+	}
+
+	subscribersReadModel := NewSubscriberReadModel(db)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
-		"SubscriberReadModel",
+		"SubscriberProjection",
 		cqrs.NewGroupEventHandler(subscribersReadModel.OnSubscribed),
 		cqrs.NewGroupEventHandler(subscribersReadModel.OnUnsubscribed),
 		cqrs.NewGroupEventHandler(subscribersReadModel.OnEmailUpdated),
@@ -127,12 +141,12 @@ func main() {
 		panic(err)
 	}
 
-	activityReadModel := NewActivityTimelineModel()
+	activityReadModel := NewActivityTimelineModel(db)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
-		"ActivityTimelineReadModel",
+		"ActivityTimelineProjection",
 		cqrs.NewGroupEventHandler(activityReadModel.OnSubscribed),
 		cqrs.NewGroupEventHandler(activityReadModel.OnUnsubscribed),
 		cqrs.NewGroupEventHandler(activityReadModel.OnEmailUpdated),
@@ -161,6 +175,7 @@ func main() {
 		if err != nil {
 			slog.Error("Error sending Subscribe command", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		m := map[string]string{
@@ -171,6 +186,7 @@ func main() {
 		if err != nil {
 			slog.Error("Error marshalling response", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		w.Write(b)
 	})
@@ -199,6 +215,7 @@ func main() {
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 			w.Write(b)
+			return
 		}
 	})
 
@@ -223,29 +240,38 @@ func main() {
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 			w.Write(b)
+			return
 		}
 	})
 
 	httpRouter.HandleFunc("GET /subscribers", func(w http.ResponseWriter, r *http.Request) {
-		subscribersReadModel.lock.RLock()
-		defer subscribersReadModel.lock.RUnlock()
-
-		b, err := json.Marshal(subscribersReadModel.subscribers)
+		subscribers, err := subscribersReadModel.GetSubscribers(r.Context())
+		if err != nil {
+			slog.Error("Error getting subscribers", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		b, err := json.Marshal(subscribers)
 		if err != nil {
 			slog.Error("Error marshalling", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		w.Write(b)
 	})
 
 	httpRouter.HandleFunc("GET /activities", func(w http.ResponseWriter, r *http.Request) {
-		activityReadModel.lock.RLock()
-		defer activityReadModel.lock.RUnlock()
-
-		b, err := json.Marshal(activityReadModel.activities)
+		activities, err := activityReadModel.GetActivities(r.Context())
+		if err != nil {
+			slog.Error("Error getting activities", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		b, err := json.Marshal(activities)
 		if err != nil {
 			slog.Error("Error marshalling", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		w.Write(b)
 	})

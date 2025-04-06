@@ -2,28 +2,67 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"github.com/google/uuid"
+	_ "github.com/jackc/pgx/v4/stdlib"
 	"log/slog"
-	"sync"
 	"time"
 )
 
-type SubscriberReadModel struct {
-	subscribers map[string]string // map[subscriberID]email
-	lock        sync.RWMutex
+type SubscriberProjection struct {
+	db *sql.DB
 }
 
-func NewSubscriberReadModel() *SubscriberReadModel {
-	return &SubscriberReadModel{
-		subscribers: make(map[string]string),
+func NewSubscriberReadModel(db *sql.DB) *SubscriberProjection {
+	return &SubscriberProjection{
+		db: db,
 	}
 }
 
-func (m *SubscriberReadModel) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+func (m *SubscriberProjection) GetSubscribers(ctx context.Context) (map[uuid.UUID]string, error) {
+	ma := map[uuid.UUID]string{}
+	rows, err := m.db.QueryContext(ctx, "select subscriber_id, email from subscriber order by created_timestamp")
+	if err != nil {
+		return ma, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u uuid.UUID
+		var e string
+		err = rows.Scan(&u, &e)
+		if err != nil {
+			return ma, err
+		}
+		ma[u] = e
+	}
+	return ma, nil
+}
 
-	m.subscribers[event.SubscriberId] = event.Email
+const NoSubscriber = ""
+
+func (m *SubscriberProjection) GetSubscriber(ctx context.Context, subscriberId uuid.UUID) (string, error) {
+	r := m.db.QueryRowContext(ctx, "select email from subscriber where subscriber_id = $1", subscriberId)
+	if r.Err() != nil {
+		return "", r.Err()
+	}
+	var e string
+	err := r.Scan(&e)
+	if errors.Is(err, sql.ErrNoRows) {
+		// there were no rows, but otherwise no error occurred
+		return NoSubscriber, nil
+	} else if err != nil {
+		return "", err
+	}
+	return e, nil
+}
+
+func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
+	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email) values ($1, $2)", event.SubscriberId, event.Email)
+	if err != nil {
+		return err
+	}
 
 	slog.Info(
 		"Subscriber added",
@@ -34,11 +73,11 @@ func (m *SubscriberReadModel) OnSubscribed(ctx context.Context, event *Subscribe
 	return nil
 }
 
-func (m *SubscriberReadModel) OnUnsubscribed(ctx context.Context, event *SubscriberUnsubscribed) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	delete(m.subscribers, event.SubscriberId)
+func (m *SubscriberProjection) OnUnsubscribed(ctx context.Context, event *SubscriberUnsubscribed) error {
+	_, err := m.db.ExecContext(ctx, "delete from subscriber where subscriber_id = $1", event.SubscriberId)
+	if err != nil {
+		return err
+	}
 
 	slog.Info(
 		"Subscriber removed",
@@ -48,11 +87,11 @@ func (m *SubscriberReadModel) OnUnsubscribed(ctx context.Context, event *Subscri
 	return nil
 }
 
-func (m *SubscriberReadModel) OnEmailUpdated(ctx context.Context, event *SubscriberEmailUpdated) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	m.subscribers[event.SubscriberId] = event.NewEmail
+func (m *SubscriberProjection) OnEmailUpdated(ctx context.Context, event *SubscriberEmailUpdated) error {
+	_, err := m.db.ExecContext(ctx, "update subscriber set email = $2 where subscriber_id = $1", event.SubscriberId, event.NewEmail)
+	if err != nil {
+		return err
+	}
 
 	slog.Info(
 		"Subscriber updated",
@@ -63,12 +102,6 @@ func (m *SubscriberReadModel) OnEmailUpdated(ctx context.Context, event *Subscri
 	return nil
 }
 
-func (m *SubscriberReadModel) GetSubscriberCount() int {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-	return len(m.subscribers)
-}
-
 // ActivityEntry represents a single event in the timeline
 type ActivityEntry struct {
 	Timestamp    time.Time `json:"timestamp"`
@@ -77,74 +110,95 @@ type ActivityEntry struct {
 	Details      string    `json:"details"`
 }
 
-// ActivityTimelineReadModel maintains a chronological log of all subscription-related events
-type ActivityTimelineReadModel struct {
-	activities []ActivityEntry
-	lock       sync.RWMutex
+// ActivityTimelineProjection maintains a chronological log of all subscription-related events
+type ActivityTimelineProjection struct {
+	db *sql.DB
 }
 
-func NewActivityTimelineModel() *ActivityTimelineReadModel {
-	return &ActivityTimelineReadModel{
-		activities: make([]ActivityEntry, 0),
+func NewActivityTimelineModel(db *sql.DB) *ActivityTimelineProjection {
+	return &ActivityTimelineProjection{
+		db: db,
 	}
 }
 
 // OnSubscribed handles subscription events
-func (m *ActivityTimelineReadModel) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
+func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
 	entry := ActivityEntry{
-		Timestamp:    time.Now(),
+		Timestamp:    time.Now().UTC(),
 		SubscriberID: event.SubscriberId,
 		ActivityType: "SUBSCRIBED",
 		Details:      fmt.Sprintf("Subscribed with email: %s", event.Email),
 	}
 
-	m.activities = append(m.activities, entry)
+	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	if err != nil {
+		return err
+	}
+
 	m.logActivity(entry)
 	return nil
 }
 
 // OnUnsubscribed handles unsubscription events
-func (m *ActivityTimelineReadModel) OnUnsubscribed(ctx context.Context, event *SubscriberUnsubscribed) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
+func (m *ActivityTimelineProjection) OnUnsubscribed(ctx context.Context, event *SubscriberUnsubscribed) error {
 	entry := ActivityEntry{
-		Timestamp:    time.Now(),
+		Timestamp:    time.Now().UTC(),
 		SubscriberID: event.SubscriberId,
 		ActivityType: "UNSUBSCRIBED",
 		Details:      "Subscriber unsubscribed",
 	}
 
-	m.activities = append(m.activities, entry)
+	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	if err != nil {
+		return err
+	}
+
 	m.logActivity(entry)
 	return nil
 }
 
 // OnEmailUpdated handles email update events
-func (m *ActivityTimelineReadModel) OnEmailUpdated(ctx context.Context, event *SubscriberEmailUpdated) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+func (m *ActivityTimelineProjection) OnEmailUpdated(ctx context.Context, event *SubscriberEmailUpdated) error {
 
 	entry := ActivityEntry{
-		Timestamp:    time.Now(),
+		Timestamp:    time.Now().UTC(),
 		SubscriberID: event.SubscriberId,
 		ActivityType: "EMAIL_UPDATED",
 		Details:      fmt.Sprintf("Email updated to: %s", event.NewEmail),
 	}
 
-	m.activities = append(m.activities, entry)
+	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	if err != nil {
+		return err
+	}
+
 	m.logActivity(entry)
 	return nil
 }
 
-func (m *ActivityTimelineReadModel) logActivity(entry ActivityEntry) {
+func (m *ActivityTimelineProjection) logActivity(entry ActivityEntry) {
 	slog.Info(
 		"[ACTIVITY]",
 		"activity_type", entry.ActivityType,
 		"subscriber_id", entry.SubscriberID,
 		"details", entry.Details,
 	)
+}
+
+func (m *ActivityTimelineProjection) GetActivities(ctx context.Context) ([]ActivityEntry, error) {
+	res := []ActivityEntry{}
+	rows, err := m.db.QueryContext(ctx, "select created_timestamp, subscriber_id, activity_type, details from activity_timeline order by created_timestamp")
+	if err != nil {
+		return res, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item = ActivityEntry{}
+		err = rows.Scan(&item.Timestamp, &item.SubscriberID, &item.ActivityType, &item.Details)
+		if err != nil {
+			return res, err
+		}
+		res = append(res, item)
+	}
+	return res, nil
 }

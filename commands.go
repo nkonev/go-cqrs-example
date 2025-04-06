@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
+	"github.com/google/uuid"
 )
 
 type Subscribe struct {
@@ -31,12 +32,13 @@ func (s *Subscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus) error {
 	})
 }
 
-func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberReadModel) error {
-	subscribersReadModel.lock.RLock()
-	defer subscribersReadModel.lock.RUnlock()
+func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberProjection) error {
 	// here is logic with business rules validation
-	_, ok := subscribersReadModel.subscribers[s.SubscriberId]
-	if !ok {
+	subscriber, err := subscribersReadModel.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
+	if err != nil {
+		return err
+	}
+	if subscriber == NoSubscriber {
 		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
 	}
 
@@ -46,12 +48,13 @@ func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subsc
 	})
 }
 
-func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberReadModel) error {
-	subscribersReadModel.lock.RLock()
-	defer subscribersReadModel.lock.RUnlock()
+func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscribersReadModel *SubscriberProjection) error {
 	// here is logic with business rules validation
-	_, ok := subscribersReadModel.subscribers[s.SubscriberId]
-	if !ok {
+	subscriber, err := subscribersReadModel.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
+	if err != nil {
+		return err
+	}
+	if subscriber == NoSubscriber {
 		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
 	}
 
