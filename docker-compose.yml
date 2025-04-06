@@ -1,18 +1,4 @@
 services:
-#  golang:
-#    image: golang:1.23
-#    restart: unless-stopped
-#    ports:
-#    - 8080:8080
-#    depends_on:
-#      - kafka
-#    links:
-#      - kafka
-#    volumes:
-#    - .:/app
-#    - $GOPATH/pkg/mod:/go/pkg/mod
-#    working_dir: /app
-#    command: go run .
 
   kafka:
     image: apache/kafka:4.0.0

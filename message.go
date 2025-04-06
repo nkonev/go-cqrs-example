@@ -3,34 +3,34 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func GenerateMessageMetadata(partitionKey string) *MessageMetadata {
 	return &MessageMetadata{
 		PartitionKey: partitionKey,
-		CreatedAt:    timestamppb.Now(),
+		CreatedAt:    time.Now().UTC(),
 	}
 }
 
 type CqrsMarshalerDecorator struct {
-	cqrs.ProtoMarshaler
+	cqrs.JSONMarshaler
 }
 
 const PartitionKeyMetadataField = "partition_key"
 
 func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error) {
-	msg, err := c.ProtoMarshaler.Marshal(v)
+	msg, err := c.JSONMarshaler.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
 
-	pm, ok := v.(ProtoMessage)
+	pm, ok := v.(JsonMessage)
 	if !ok {
-		return nil, fmt.Errorf("%T does not implement ProtoMessage and can't be marshaled", v)
+		return nil, fmt.Errorf("%T does not implement JsonMessage and can't be marshaled", v)
 	}
 
 	metadata := pm.GetMetadata()
@@ -39,12 +39,12 @@ func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error)
 	}
 
 	msg.Metadata.Set(PartitionKeyMetadataField, metadata.PartitionKey)
-	msg.Metadata.Set("created_at", metadata.CreatedAt.AsTime().String())
+	msg.Metadata.Set("created_at", metadata.CreatedAt.String())
 
 	return msg, nil
 }
 
-type ProtoMessage interface {
+type JsonMessage interface {
 	GetMetadata() *MessageMetadata
 }
 

@@ -3,7 +3,6 @@ module main.go
 require (
 	github.com/ThreeDotsLabs/watermill v1.4.4
 	github.com/ThreeDotsLabs/watermill-kafka/v3 v3.0.6
-	google.golang.org/protobuf v1.36.3
 )
 
 require (
@@ -40,6 +39,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.33.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
+	google.golang.org/protobuf v1.36.3 // indirect
 )
 
 go 1.23

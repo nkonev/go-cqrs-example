@@ -2,18 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	"log/slog"
+	"net/http"
+	"sync/atomic"
 )
 
 func main() {
+
+	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
+
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	logger := watermill.NewSlogLoggerWithLevelMapping(nil, map[slog.Level]slog.Level{
@@ -22,10 +26,12 @@ func main() {
 
 	// We are decorating ProtobufMarshaler to add extra metadata to the message.
 	cqrsMarshaler := CqrsMarshalerDecorator{
-		cqrs.ProtoMarshaler{
+		cqrs.JSONMarshaler{
 			// It will generate topic names based on the event/command type.
 			// So for example, for "RoomBooked" name will be "RoomBooked".
-			GenerateName: cqrs.StructName,
+			GenerateName: cqrs.NamedStruct(func(v interface{}) string {
+				panic(fmt.Sprintf("not implemented Name() for %T", v))
+			}),
 		},
 	}
 
@@ -43,7 +49,7 @@ func main() {
 	// You can use any Pub/Sub implementation from here: https://watermill.io/pubsubs/
 	publisher, err := kafka.NewPublisher(
 		kafka.PublisherConfig{
-			Brokers:   []string{"127.0.0.1:9092"},
+			Brokers:   kafkaBootstrapServers,
 			Marshaler: kafkaMarshaler,
 		},
 		watermillLogger,
@@ -53,7 +59,7 @@ func main() {
 	}
 
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
-	router, err := message.NewRouter(message.RouterConfig{}, logger)
+	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, logger)
 	if err != nil {
 		panic(err)
 	}
@@ -63,25 +69,13 @@ func main() {
 	// https://watermill.io/docs/messages-router/#middleware
 	//
 	// List of available middlewares you can find in message/router/middleware.
-	router.AddMiddleware(middleware.Recoverer)
-	router.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
+	cqrsRouter.AddMiddleware(middleware.Recoverer)
+	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			slog.Debug("Received message", "metadata", msg.Metadata)
 			return h(msg)
 		}
 	})
-
-	commandBus, err := cqrs.NewCommandBusWithConfig(publisher, cqrs.CommandBusConfig{
-		GeneratePublishTopic: func(params cqrs.CommandBusGeneratePublishTopicParams) (string, error) {
-			// We are using one topic for all commands to maintain the order of commands.
-			return "commands", nil
-		},
-		Marshaler: cqrsMarshaler,
-		Logger:    logger,
-	})
-	if err != nil {
-		panic(err)
-	}
 
 	eventBus, err := cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
 		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
@@ -95,32 +89,8 @@ func main() {
 		panic(err)
 	}
 
-	commandProcessor, err := cqrs.NewCommandProcessorWithConfig(
-		router,
-		cqrs.CommandProcessorConfig{
-			GenerateSubscribeTopic: func(params cqrs.CommandProcessorGenerateSubscribeTopicParams) (string, error) {
-				return "commands", nil
-			},
-			SubscriberConstructor: func(params cqrs.CommandProcessorSubscriberConstructorParams) (message.Subscriber, error) {
-				return kafka.NewSubscriber(
-					kafka.SubscriberConfig{
-						Brokers:       []string{"127.0.0.1:9092"},
-						ConsumerGroup: params.HandlerName,
-						Unmarshaler:   kafkaMarshaler,
-					},
-					watermillLogger,
-				)
-			},
-			Marshaler: cqrsMarshaler,
-			Logger:    logger,
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-
 	eventProcessor, err := cqrs.NewEventGroupProcessorWithConfig(
-		router,
+		cqrsRouter,
 		cqrs.EventGroupProcessorConfig{
 			GenerateSubscribeTopic: func(params cqrs.EventGroupProcessorGenerateSubscribeTopicParams) (string, error) {
 				return "events", nil
@@ -128,7 +98,7 @@ func main() {
 			SubscriberConstructor: func(params cqrs.EventGroupProcessorSubscriberConstructorParams) (message.Subscriber, error) {
 				return kafka.NewSubscriber(
 					kafka.SubscriberConfig{
-						Brokers:       []string{"127.0.0.1:9092"},
+						Brokers:       kafkaBootstrapServers,
 						ConsumerGroup: params.EventGroupName,
 						Unmarshaler:   kafkaMarshaler,
 					},
@@ -138,15 +108,6 @@ func main() {
 			Marshaler: cqrsMarshaler,
 			Logger:    logger,
 		},
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	err = commandProcessor.AddHandlers(
-		cqrs.NewCommandHandler("SubscribeHandler", SubscribeHandler{eventBus}.Handle),
-		cqrs.NewCommandHandler("UnsubscribeHandler", UnsubscribeHandler{eventBus}.Handle),
-		cqrs.NewCommandHandler("UpdateEmailHandler", UpdateEmailHandler{eventBus}.Handle),
 	)
 	if err != nil {
 		panic(err)
@@ -182,81 +143,116 @@ func main() {
 
 	slog.Info("Starting service")
 
-	go simulateTraffic(commandBus)
+	var seq atomic.Uint64
 
-	if err := router.Run(context.Background()); err != nil {
-		panic(err)
-	}
-}
-
-func simulateTraffic(commandBus *cqrs.CommandBus) {
-	for i := 0; ; i++ {
+	httpRouter := http.NewServeMux()
+	httpRouter.HandleFunc("POST /subscribe", func(w http.ResponseWriter, r *http.Request) {
 		subscriberID := watermill.NewUUID()
 
-		err := commandBus.Send(context.Background(), &Subscribe{
+		vi := seq.Add(1)
+		c := Subscribe{
 			Metadata:     GenerateMessageMetadata(subscriberID),
 			SubscriberId: subscriberID,
-			Email:        fmt.Sprintf("user%d@example.com", i),
-		})
+			Email:        fmt.Sprintf("user%d@example.com", vi),
+		}
+
+		err := c.Handle(r.Context(), eventBus)
+
 		if err != nil {
 			slog.Error("Error sending Subscribe command", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
 		}
-		time.Sleep(time.Millisecond * 500)
 
-		err = commandBus.Send(context.Background(), &UpdateEmail{
+		m := map[string]string{
+			"id":  subscriberID,
+			"seq": fmt.Sprintf("%v", vi),
+		}
+		b, err := json.Marshal(m)
+		if err != nil {
+			slog.Error("Error marshalling response", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		w.Write(b)
+	})
+
+	httpRouter.HandleFunc("PUT /update/{id}", func(w http.ResponseWriter, r *http.Request) {
+		vi := seq.Load()
+
+		subscriberID := r.PathValue("id")
+
+		c := UpdateEmail{
 			Metadata:     GenerateMessageMetadata(subscriberID),
 			SubscriberId: subscriberID,
-			NewEmail:     fmt.Sprintf("updated%d@example.com", i),
-		})
+			NewEmail:     fmt.Sprintf("updated%d@example.com", vi),
+		}
+		err := c.Handle(r.Context(), eventBus, subscribersReadModel)
 		if err != nil {
 			slog.Error("Error sending UpdateEmail command", "err", err)
-		}
-		time.Sleep(time.Millisecond * 500)
+			w.WriteHeader(http.StatusInternalServerError)
 
-		if i%3 == 0 {
-			err = commandBus.Send(context.Background(), &Unsubscribe{
-				Metadata:     GenerateMessageMetadata(subscriberID),
-				SubscriberId: subscriberID,
-			})
-			if err != nil {
-				slog.Error("Error sending Unsubscribe command", "err", err)
+			m := map[string]string{
+				"msg": err.Error(),
 			}
+			b, err := json.Marshal(m)
+			if err != nil {
+				slog.Error("Error marshalling response", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			w.Write(b)
 		}
-		time.Sleep(time.Millisecond * 500)
+	})
+
+	httpRouter.HandleFunc("POST /unsubscribe/{id}", func(w http.ResponseWriter, r *http.Request) {
+		subscriberID := r.PathValue("id")
+
+		c := Unsubscribe{
+			Metadata:     GenerateMessageMetadata(subscriberID),
+			SubscriberId: subscriberID,
+		}
+		err := c.Handle(r.Context(), eventBus, subscribersReadModel)
+		if err != nil {
+			slog.Error("Error sending Unsubscribe command", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+
+			m := map[string]string{
+				"msg": err.Error(),
+			}
+			b, err := json.Marshal(m)
+			if err != nil {
+				slog.Error("Error marshalling response", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			w.Write(b)
+		}
+	})
+
+	httpRouter.HandleFunc("GET /subscribers", func(w http.ResponseWriter, r *http.Request) {
+		subscribersReadModel.lock.RLock()
+		defer subscribersReadModel.lock.RUnlock()
+
+		b, err := json.Marshal(subscribersReadModel.subscribers)
+		if err != nil {
+			slog.Error("Error marshalling", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		w.Write(b)
+	})
+
+	httpRouter.HandleFunc("GET /activities", func(w http.ResponseWriter, r *http.Request) {
+		activityReadModel.lock.RLock()
+		defer activityReadModel.lock.RUnlock()
+
+		b, err := json.Marshal(activityReadModel.activities)
+		if err != nil {
+			slog.Error("Error marshalling", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		w.Write(b)
+	})
+
+	go http.ListenAndServe(":8080", httpRouter)
+
+	if err := cqrsRouter.Run(context.Background()); err != nil {
+		panic(err)
 	}
-}
-
-type SubscribeHandler struct {
-	eventBus *cqrs.EventBus
-}
-
-func (h SubscribeHandler) Handle(ctx context.Context, cmd *Subscribe) error {
-	return h.eventBus.Publish(ctx, &SubscriberSubscribed{
-		Metadata:     GenerateMessageMetadata(cmd.SubscriberId),
-		SubscriberId: cmd.SubscriberId,
-		Email:        cmd.Email,
-	})
-}
-
-type UnsubscribeHandler struct {
-	eventBus *cqrs.EventBus
-}
-
-func (h UnsubscribeHandler) Handle(ctx context.Context, cmd *Unsubscribe) error {
-	return h.eventBus.Publish(ctx, &SubscriberUnsubscribed{
-		Metadata:     GenerateMessageMetadata(cmd.SubscriberId),
-		SubscriberId: cmd.SubscriberId,
-	})
-}
-
-type UpdateEmailHandler struct {
-	eventBus *cqrs.EventBus
-}
-
-func (h UpdateEmailHandler) Handle(ctx context.Context, cmd *UpdateEmail) error {
-	return h.eventBus.Publish(ctx, &SubscriberEmailUpdated{
-		Metadata:     GenerateMessageMetadata(cmd.SubscriberId),
-		SubscriberId: cmd.SubscriberId,
-		NewEmail:     cmd.NewEmail,
-	})
 }

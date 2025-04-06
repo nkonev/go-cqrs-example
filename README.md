@@ -34,5 +34,14 @@ Thanks to that, you can scale your application horizontally and increase the thr
 ## Running
 
 ```bash
-docker-compose up
+docker-compose up -d
+```
+
+
+```bash
+curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/subscribe'
+curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
+curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
+
+curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 ```
