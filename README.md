@@ -50,4 +50,19 @@ docker compose logs -f postgresql
 docker compose exec -it postgresql psql -U postgres
 select * from subscriber order by created_timestamp;
 select * from activity_timeline order by created_timestamp;
+
+# stop app
+
+docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; truncate activity_timeline;'
+
+docker compose exec -it kafka bash
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group SubscriberProjection --offsets
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group ActivityTimelineProjection --offsets
+
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ActivityTimelineProjection --reset-offsets --to-earliest --execute --topic events
+
+# start app and it will restore tables from th zeroth offset
+
 ```
