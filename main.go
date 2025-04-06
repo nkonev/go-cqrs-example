@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
@@ -12,6 +13,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -268,9 +272,68 @@ func main() {
 		w.Write(b)
 	})
 
-	go http.ListenAndServe(":8080", httpRouter)
+	httpServer := &http.Server{
+		Addr:           ":8080",
+		Handler:        httpRouter,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
 
-	if err := cqrsRouter.Run(context.Background()); err != nil {
-		panic(err)
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
+
+	appCtx, appCtxCancel := context.WithCancel(context.Background())
+
+	go func() {
+		err := httpServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			slog.Info("Http server is closed")
+		} else if err != nil {
+			slog.Error("Got http server error", "err", err)
+			appCtxCancel()
+		}
+	}()
+
+	go func() {
+		err := cqrsRouter.Run(context.Background())
+		if err != nil {
+			slog.Error("Got cqrs error", "err", err)
+			appCtxCancel()
+		}
+	}()
+
+	select {
+	case <-sigterm:
+		slog.Info("terminating: via signal")
+		closeResources(httpServer, cqrsRouter, db)
+		return
+	case <-appCtx.Done():
+		slog.Info("terminating: due to error")
+		closeResources(httpServer, cqrsRouter, db)
+		return
+	}
+}
+
+func closeResources(httpServer *http.Server, cqrsRouter *message.Router, db *sql.DB) {
+	err := httpServer.Shutdown(context.Background())
+	if err != nil {
+		slog.Error("error during close http server", "err", err)
+	} else {
+		slog.Info("http server was closed successfully")
+	}
+
+	err = cqrsRouter.Close()
+	if err != nil {
+		slog.Error("error during close cqrs", "err", err)
+	} else {
+		slog.Info("cqrs was closed successfully")
+	}
+
+	err = db.Close()
+	if err != nil {
+		slog.Error("error during close database", "err", err)
+	} else {
+		slog.Info("database was closed successfully")
 	}
 }

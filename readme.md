@@ -40,7 +40,7 @@ docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; tru
 curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 
-# stop app, wait 10 sec
+# stop app
 
 # reset offsets for consumer groups
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
