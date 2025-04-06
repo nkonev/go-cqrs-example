@@ -45,24 +45,37 @@ curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/
 curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/unsubscribe/216681f5-e73e-4461-926e-019445b9913b'
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 
+# see logs
 docker compose logs -f kafka
 docker compose logs -f postgresql
+
+# see projections
 docker compose exec -it postgresql psql -U postgres
 select * from subscriber order by created_timestamp;
 select * from activity_timeline order by created_timestamp;
 
-# stop app
-
+# clear projections
 docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; truncate activity_timeline;'
 
+# now there are zeroes
+curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
+curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+
+# stop app, wait 10 sec
+
+# reset offsets for consumer groups
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ActivityTimelineProjection --reset-offsets --to-earliest --execute --topic events
+
+# start app again and it will restore tables from th zeroth offset, see
+curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
+curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+```
+
+various commands
+``` bash
 docker compose exec -it kafka bash
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group SubscriberProjection --offsets
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group ActivityTimelineProjection --offsets
-
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ActivityTimelineProjection --reset-offsets --to-earliest --execute --topic events
-
-# start app and it will restore tables from th zeroth offset
-
 ```
