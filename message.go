@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
@@ -21,6 +22,7 @@ type CqrsMarshalerDecorator struct {
 }
 
 const PartitionKeyMetadataField = "partition_key"
+const CreatedAtKeyMetadataField = "created_at"
 
 func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error) {
 	msg, err := c.JSONMarshaler.Marshal(v)
@@ -39,13 +41,39 @@ func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error)
 	}
 
 	msg.Metadata.Set(PartitionKeyMetadataField, metadata.PartitionKey)
-	msg.Metadata.Set("created_at", metadata.CreatedAt.String())
+	msg.Metadata.Set(CreatedAtKeyMetadataField, fmt.Sprintf("%v", metadata.CreatedAt.Unix()))
 
 	return msg, nil
 }
 
+func (c CqrsMarshalerDecorator) Unmarshal(msg *message.Message, v interface{}) (err error) {
+	err = c.JSONMarshaler.Unmarshal(msg, v)
+	if err != nil {
+		return err
+	}
+
+	pm, ok := v.(JsonMessage)
+	if !ok {
+		return fmt.Errorf("%T does not implement JsonMessage and can't be unmarshaled", v)
+	}
+
+	metadata := &MessageMetadata{}
+
+	ts := msg.Metadata.Get(CreatedAtKeyMetadataField)
+	i, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return err
+	}
+	tm := time.Unix(i, 0).UTC()
+	metadata.CreatedAt = tm
+	metadata.PartitionKey = msg.Metadata.Get(PartitionKeyMetadataField)
+	pm.SetMetadata(metadata)
+	return nil
+}
+
 type JsonMessage interface {
 	GetMetadata() *MessageMetadata
+	SetMetadata(*MessageMetadata)
 }
 
 // GenerateKafkaPartitionKey is a function that generates a partition key for Kafka messages.

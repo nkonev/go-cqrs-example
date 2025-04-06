@@ -3,23 +3,23 @@ package main
 import "time"
 
 type MessageMetadata struct {
-	PartitionKey string    `json:"partition_key"`
-	CreatedAt    time.Time `json:"created_at"`
+	PartitionKey string
+	CreatedAt    time.Time
 }
 
 type SubscriberSubscribed struct {
-	Metadata     *MessageMetadata `json:"metadata"`
+	Metadata     *MessageMetadata `json:"-"`
 	SubscriberId string           `json:"subscriber_id"`
 	Email        string           `json:"email"`
 }
 
 type SubscriberUnsubscribed struct {
-	Metadata     *MessageMetadata `json:"metadata"`
+	Metadata     *MessageMetadata `json:"-"`
 	SubscriberId string           `json:"subscriber_id"`
 }
 
 type SubscriberEmailUpdated struct {
-	Metadata     *MessageMetadata `json:"metadata"`
+	Metadata     *MessageMetadata `json:"-"`
 	SubscriberId string           `json:"subscriber_id"`
 	NewEmail     string           `json:"new_email"`
 }
@@ -34,6 +34,18 @@ func (s *SubscriberUnsubscribed) GetMetadata() *MessageMetadata {
 
 func (s *SubscriberEmailUpdated) GetMetadata() *MessageMetadata {
 	return s.Metadata
+}
+
+func (s *SubscriberSubscribed) SetMetadata(m *MessageMetadata) {
+	s.Metadata = m
+}
+
+func (s *SubscriberUnsubscribed) SetMetadata(m *MessageMetadata) {
+	s.Metadata = m
+}
+
+func (s *SubscriberEmailUpdated) SetMetadata(m *MessageMetadata) {
+	s.Metadata = m
 }
 
 func (s *SubscriberSubscribed) Name() string {
