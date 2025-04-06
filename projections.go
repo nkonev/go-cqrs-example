@@ -59,7 +59,7 @@ func (m *SubscriberProjection) GetSubscriber(ctx context.Context, subscriberId u
 }
 
 func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, time.Now().UTC())
+	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, event.GetMetadata().CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func NewActivityTimelineModel(db *sql.DB) *ActivityTimelineProjection {
 // OnSubscribed handles subscription events
 func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
 	entry := ActivityEntry{
-		Timestamp:    time.Now().UTC(),
+		Timestamp:    event.GetMetadata().CreatedAt,
 		SubscriberID: event.SubscriberId,
 		ActivityType: "SUBSCRIBED",
 		Details:      fmt.Sprintf("Subscribed with email: %s", event.Email),
@@ -142,7 +142,7 @@ func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *Su
 // OnUnsubscribed handles unsubscription events
 func (m *ActivityTimelineProjection) OnUnsubscribed(ctx context.Context, event *SubscriberUnsubscribed) error {
 	entry := ActivityEntry{
-		Timestamp:    time.Now().UTC(),
+		Timestamp:    event.GetMetadata().CreatedAt,
 		SubscriberID: event.SubscriberId,
 		ActivityType: "UNSUBSCRIBED",
 		Details:      "Subscriber unsubscribed",
@@ -161,7 +161,7 @@ func (m *ActivityTimelineProjection) OnUnsubscribed(ctx context.Context, event *
 func (m *ActivityTimelineProjection) OnEmailUpdated(ctx context.Context, event *SubscriberEmailUpdated) error {
 
 	entry := ActivityEntry{
-		Timestamp:    time.Now().UTC(),
+		Timestamp:    event.GetMetadata().CreatedAt,
 		SubscriberID: event.SubscriberId,
 		ActivityType: "EMAIL_UPDATED",
 		Details:      fmt.Sprintf("Email updated to: %s", event.NewEmail),
