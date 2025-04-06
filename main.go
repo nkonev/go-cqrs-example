@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/IBM/sarama"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
@@ -22,6 +23,7 @@ import (
 
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
+	topicName := "events"
 
 	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -30,6 +32,35 @@ func main() {
 	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
 	})
+
+	kafkaAdminConfig := sarama.NewConfig()
+	kafkaAdminConfig.Version = sarama.V4_0_0_0
+
+	kafkaAdmin, err := sarama.NewClusterAdmin(kafkaBootstrapServers, kafkaAdminConfig)
+	if err != nil {
+		panic(err)
+	}
+
+	retention := "-1"
+	err = kafkaAdmin.CreateTopic(topicName, &sarama.TopicDetail{
+		NumPartitions:     1,
+		ReplicationFactor: 1,
+		ConfigEntries: map[string]*string{
+			// https://kafka.apache.org/documentation/#topicconfigs_retention.ms
+			"retention.ms": &retention,
+		},
+	}, false)
+	if errors.Is(err, sarama.ErrTopicAlreadyExists) {
+		slogLogger.Info("Topic is already exists", "topic", topicName)
+	} else if err != nil {
+		panic(err)
+	} else {
+		slogLogger.Info("Topic was successfully created", "topic", topicName)
+	}
+	err = kafkaAdmin.Close()
+	if err != nil {
+		slogLogger.Error("Error during closing kafka admin", "err", err)
+	}
 
 	// We are decorating ProtobufMarshaler to add extra metadata to the message.
 	cqrsMarshaler := CqrsMarshalerDecorator{
@@ -54,10 +85,18 @@ func main() {
 	kafkaMarshaler := kafka.NewWithPartitioningMarshaler(GenerateKafkaPartitionKey)
 
 	// You can use any Pub/Sub implementation from here: https://watermill.io/pubsubs/
+	kafkaProducerConfig := sarama.NewConfig()
+	kafkaProducerConfig.Producer.Retry.Max = 10
+	kafkaProducerConfig.Producer.Return.Successes = true
+	kafkaProducerConfig.Version = sarama.V4_0_0_0
+	kafkaProducerConfig.Metadata.Retry.Backoff = time.Second * 2
+	kafkaProducerConfig.ClientID = "go-cqrs-producer"
+
 	publisher, err := kafka.NewPublisher(
 		kafka.PublisherConfig{
-			Brokers:   kafkaBootstrapServers,
-			Marshaler: kafkaMarshaler,
+			Brokers:               kafkaBootstrapServers,
+			OverwriteSaramaConfig: kafkaProducerConfig,
+			Marshaler:             kafkaMarshaler,
 		},
 		watermillLogger,
 	)
@@ -87,7 +126,7 @@ func main() {
 	eventBus, err := cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
 		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
 			// We are using one topic for all events to maintain the order of events.
-			return "events", nil
+			return topicName, nil
 		},
 		Marshaler: cqrsMarshaler,
 		Logger:    watermillLoggerAdapter,
@@ -96,18 +135,26 @@ func main() {
 		panic(err)
 	}
 
+	kafkaConsumerConfig := sarama.NewConfig()
+	kafkaConsumerConfig.Consumer.Return.Errors = true
+	kafkaConsumerConfig.Version = sarama.V4_0_0_0
+	kafkaConsumerConfig.ClientID = "go-cqrs-consumer"
+
 	eventProcessor, err := cqrs.NewEventGroupProcessorWithConfig(
 		cqrsRouter,
 		cqrs.EventGroupProcessorConfig{
 			GenerateSubscribeTopic: func(params cqrs.EventGroupProcessorGenerateSubscribeTopicParams) (string, error) {
-				return "events", nil
+				return topicName, nil
 			},
 			SubscriberConstructor: func(params cqrs.EventGroupProcessorSubscriberConstructorParams) (message.Subscriber, error) {
 				return kafka.NewSubscriber(
 					kafka.SubscriberConfig{
-						Brokers:       kafkaBootstrapServers,
-						ConsumerGroup: params.EventGroupName,
-						Unmarshaler:   kafkaMarshaler,
+						Brokers:               kafkaBootstrapServers,
+						OverwriteSaramaConfig: kafkaConsumerConfig,
+						ConsumerGroup:         params.EventGroupName,
+						Unmarshaler:           kafkaMarshaler,
+						NackResendSleep:       time.Millisecond * 100,
+						ReconnectRetrySleep:   time.Second,
 					},
 					watermillLogger,
 				)
