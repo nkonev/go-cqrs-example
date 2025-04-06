@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/ThreeDotsLabs/watermill"
@@ -11,6 +10,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	"github.com/gin-gonic/gin"
+	sloggin "github.com/samber/slog-gin"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,12 +21,13 @@ import (
 )
 
 func main() {
-
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 
-	slog.SetLogLoggerLevel(slog.LevelDebug)
+	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
-	logger := watermill.NewSlogLoggerWithLevelMapping(nil, map[slog.Level]slog.Level{
+	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
 	})
 
@@ -41,7 +43,7 @@ func main() {
 	}
 
 	watermillLogger := watermill.NewSlogLoggerWithLevelMapping(
-		slog.With("watermill", true),
+		slogLogger.With("watermill", true),
 		map[slog.Level]slog.Level{
 			slog.LevelInfo: slog.LevelDebug,
 		},
@@ -64,7 +66,7 @@ func main() {
 	}
 
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
-	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, logger)
+	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, watermillLoggerAdapter)
 	if err != nil {
 		panic(err)
 	}
@@ -77,7 +79,7 @@ func main() {
 	cqrsRouter.AddMiddleware(middleware.Recoverer)
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
-			slog.Debug("Received message", "metadata", msg.Metadata)
+			slogLogger.Debug("Received message", "metadata", msg.Metadata)
 			return h(msg)
 		}
 	})
@@ -88,7 +90,7 @@ func main() {
 			return "events", nil
 		},
 		Marshaler: cqrsMarshaler,
-		Logger:    logger,
+		Logger:    watermillLoggerAdapter,
 	})
 	if err != nil {
 		panic(err)
@@ -111,7 +113,7 @@ func main() {
 				)
 			},
 			Marshaler: cqrsMarshaler,
-			Logger:    logger,
+			Logger:    watermillLoggerAdapter,
 		},
 	)
 	if err != nil {
@@ -158,123 +160,19 @@ func main() {
 		panic(err)
 	}
 
-	slog.Info("Starting service")
+	slogLogger.Info("Starting service")
 
-	httpRouter := http.NewServeMux()
-	httpRouter.HandleFunc("POST /subscribe", func(w http.ResponseWriter, r *http.Request) {
-		subscriberID := watermill.NewUUID()
+	// https://gin-gonic.com/en/docs/examples/graceful-restart-or-stop/
+	gin.SetMode(gin.ReleaseMode)
+	ginRouter := gin.New()
+	ginRouter.Use(sloggin.New(slogLogger))
+	ginRouter.Use(gin.Recovery())
 
-		c := Subscribe{
-			Metadata:     GenerateMessageMetadata(subscriberID),
-			SubscriberId: subscriberID,
-		}
-
-		err := c.Handle(r.Context(), eventBus, subscriberProjection)
-
-		if err != nil {
-			slog.Error("Error sending Subscribe command", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		m := map[string]string{
-			"id": subscriberID,
-		}
-		b, err := json.Marshal(m)
-		if err != nil {
-			slog.Error("Error marshalling response", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Write(b)
-	})
-
-	httpRouter.HandleFunc("PUT /update/{id}", func(w http.ResponseWriter, r *http.Request) {
-		subscriberID := r.PathValue("id")
-
-		c := UpdateEmail{
-			Metadata:     GenerateMessageMetadata(subscriberID),
-			SubscriberId: subscriberID,
-			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
-		}
-		err := c.Handle(r.Context(), eventBus, subscriberProjection)
-		if err != nil {
-			slog.Error("Error sending UpdateEmail command", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-
-			m := map[string]string{
-				"msg": err.Error(),
-			}
-			b, err := json.Marshal(m)
-			if err != nil {
-				slog.Error("Error marshalling response", "err", err)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			w.Write(b)
-			return
-		}
-	})
-
-	httpRouter.HandleFunc("POST /unsubscribe/{id}", func(w http.ResponseWriter, r *http.Request) {
-		subscriberID := r.PathValue("id")
-
-		c := Unsubscribe{
-			Metadata:     GenerateMessageMetadata(subscriberID),
-			SubscriberId: subscriberID,
-		}
-		err := c.Handle(r.Context(), eventBus, subscriberProjection)
-		if err != nil {
-			slog.Error("Error sending Unsubscribe command", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-
-			m := map[string]string{
-				"msg": err.Error(),
-			}
-			b, err := json.Marshal(m)
-			if err != nil {
-				slog.Error("Error marshalling response", "err", err)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			w.Write(b)
-			return
-		}
-	})
-
-	httpRouter.HandleFunc("GET /subscribers", func(w http.ResponseWriter, r *http.Request) {
-		subscribers, err := subscriberProjection.GetSubscribers(r.Context())
-		if err != nil {
-			slog.Error("Error getting subscribers", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		b, err := json.Marshal(subscribers)
-		if err != nil {
-			slog.Error("Error marshalling", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Write(b)
-	})
-
-	httpRouter.HandleFunc("GET /activities", func(w http.ResponseWriter, r *http.Request) {
-		activities, err := activityProjection.GetActivities(r.Context())
-		if err != nil {
-			slog.Error("Error getting activities", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		b, err := json.Marshal(activities)
-		if err != nil {
-			slog.Error("Error marshalling", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Write(b)
-	})
+	makeHttpHandlers(ginRouter, slogLogger, eventBus, subscriberProjection, activityProjection)
 
 	httpServer := &http.Server{
 		Addr:           ":8080",
-		Handler:        httpRouter,
+		Handler:        ginRouter.Handler(),
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
@@ -288,9 +186,9 @@ func main() {
 	go func() {
 		err := httpServer.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
-			slog.Info("Http server is closed")
+			slogLogger.Info("Http server is closed")
 		} else if err != nil {
-			slog.Error("Got http server error", "err", err)
+			slogLogger.Error("Got http server error", "err", err)
 			appCtxCancel()
 		}
 	}()
@@ -298,42 +196,124 @@ func main() {
 	go func() {
 		err := cqrsRouter.Run(context.Background())
 		if err != nil {
-			slog.Error("Got cqrs error", "err", err)
+			slogLogger.Error("Got cqrs error", "err", err)
 			appCtxCancel()
 		}
 	}()
 
 	select {
 	case <-sigterm:
-		slog.Info("terminating: via signal")
-		closeResources(httpServer, cqrsRouter, db)
+		slogLogger.Info("terminating: via signal")
+		closeResources(slogLogger, httpServer, cqrsRouter, db)
 		return
 	case <-appCtx.Done():
-		slog.Info("terminating: due to error")
-		closeResources(httpServer, cqrsRouter, db)
+		slogLogger.Info("terminating: due to error")
+		closeResources(slogLogger, httpServer, cqrsRouter, db)
 		return
 	}
 }
 
-func closeResources(httpServer *http.Server, cqrsRouter *message.Router, db *sql.DB) {
+func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection, activityProjection *ActivityTimelineProjection) {
+	ginRouter.POST("/subscribe", func(g *gin.Context) {
+		subscriberID := watermill.NewUUID()
+
+		c := Subscribe{
+			Metadata:     GenerateMessageMetadata(subscriberID),
+			SubscriberId: subscriberID,
+		}
+
+		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
+
+		if err != nil {
+			slogLogger.Error("Error sending Subscribe command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		m := map[string]string{
+			"id": subscriberID,
+		}
+
+		g.JSON(http.StatusOK, m)
+	})
+
+	ginRouter.PUT("/update/:id", func(g *gin.Context) {
+		subscriberID := g.Param("id")
+
+		c := UpdateEmail{
+			Metadata:     GenerateMessageMetadata(subscriberID),
+			SubscriberId: subscriberID,
+			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
+		}
+		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
+		if err != nil {
+			slogLogger.Error("Error sending UpdateEmail command", "err", err)
+			m := map[string]string{
+				"msg": err.Error(),
+			}
+			g.JSON(http.StatusBadRequest, m)
+			return
+		}
+	})
+
+	ginRouter.POST("/unsubscribe/:id", func(g *gin.Context) {
+		subscriberID := g.Param("id")
+
+		c := Unsubscribe{
+			Metadata:     GenerateMessageMetadata(subscriberID),
+			SubscriberId: subscriberID,
+		}
+		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
+		if err != nil {
+			slogLogger.Error("Error sending Unsubscribe command", "err", err)
+			m := map[string]string{
+				"msg": err.Error(),
+			}
+			g.JSON(http.StatusBadRequest, m)
+			return
+		}
+	})
+
+	ginRouter.GET("/subscribers", func(g *gin.Context) {
+		subscribers, err := subscriberProjection.GetSubscribers(g.Request.Context())
+		if err != nil {
+			slogLogger.Error("Error getting subscribers", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+		g.JSON(http.StatusOK, subscribers)
+	})
+
+	ginRouter.GET("/activities", func(g *gin.Context) {
+		activities, err := activityProjection.GetActivities(g.Request.Context())
+		if err != nil {
+			slogLogger.Error("Error getting activities", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+		g.JSON(http.StatusOK, activities)
+	})
+}
+
+func closeResources(slogLogger *slog.Logger, httpServer *http.Server, cqrsRouter *message.Router, db *sql.DB) {
 	err := httpServer.Shutdown(context.Background())
 	if err != nil {
-		slog.Error("error during close http server", "err", err)
+		slogLogger.Error("error during close http server", "err", err)
 	} else {
-		slog.Info("http server was closed successfully")
+		slogLogger.Info("http server was closed successfully")
 	}
 
 	err = cqrsRouter.Close()
 	if err != nil {
-		slog.Error("error during close cqrs", "err", err)
+		slogLogger.Error("error during close cqrs", "err", err)
 	} else {
-		slog.Info("cqrs was closed successfully")
+		slogLogger.Info("cqrs was closed successfully")
 	}
 
 	err = db.Close()
 	if err != nil {
-		slog.Error("error during close database", "err", err)
+		slogLogger.Error("error during close database", "err", err)
 	} else {
-		slog.Info("database was closed successfully")
+		slogLogger.Info("database was closed successfully")
 	}
 }
