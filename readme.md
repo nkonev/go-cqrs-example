@@ -2,7 +2,7 @@
 
 This application is using [Watermill CQRS](http://watermill.io/docs/cqrs) component.
 
-It's an improved [6-cqrs-ordered-events](https://github.com/ThreeDotsLabs/watermill/tree/master/_examples/basic/6-cqrs-ordered-events) example.
+It's an improved [6-cqrs-ordered-events](https://github.com/ThreeDotsLabs/watermill/tree/v1.4.6/_examples/basic/6-cqrs-ordered-events) example.
 
 Events are stored in Kafka, projections are stored in PostgreSQL.
 
