@@ -2,57 +2,34 @@
 
 This application is using [Watermill CQRS](http://watermill.io/docs/cqrs) component.
 
-Detailed documentation for CQRS can be found in Watermill's docs: [http://watermill.io/docs/cqrs#usage](http://watermill.io/docs/cqrs).
+Events are stored in Kafka, projections are stored in PostgreSQL.
 
-This example, uses event groups to keep order for multiple events. You can read more about them in the [Watermill documentation](https://watermill.io/docs/cqrs/).
-We are also using Kafka's partitioning keys to increase processing throughput without losing order of events.
+We can reset our projections and then restore their state from Kafka by resetting offsets.
 
+See [It's Okay To Store Data In Kafka](https://www.confluent.io/blog/okay-store-data-apache-kafka/).
 
-## What does this application do?
-
-This application manages an email subscription system where users can:
-
-1. Subscribe to receive emails by providing their email address
-2. Update their email address after subscribing
-3. Unsubscribe from the mailing list
-
-The system maintains:
-- A current list of all active subscribers
-- A timeline of all subscription-related activities
-
-In this example, keeping order of events is crucial.
-If events won't be ordered, and `SubscriberSubscribed` would arrive after `SubscriberUnsubscribed` event,
-the subscriber will be still subscribed.
-
-## Possible improvements
-
-In this example, we are using global `events` and `commands` topics.
-You can consider splitting them into smaller topics, for example, per aggregate type.
-
-Thanks to that, you can scale your application horizontally and increase the throughput and processing less events.
-
-## Running
-
+# Start
 ```bash
-docker-compose up -d
+docker compose up -d
+go run .
 ```
 
-
+# Play with
 ```bash
+# create a subscriber
 curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/subscribe'
+
+# see subscribers
 curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
+
+# update the subscriber
 curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
+
+# unsubscribe
 curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/unsubscribe/216681f5-e73e-4461-926e-019445b9913b'
+
+# see activities
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
-
-# see logs
-docker compose logs -f kafka
-docker compose logs -f postgresql
-
-# see projections
-docker compose exec -it postgresql psql -U postgres
-select * from subscriber order by created_timestamp;
-select * from activity_timeline order by created_timestamp;
 
 # clear projections
 docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; truncate activity_timeline;'
@@ -67,13 +44,24 @@ curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ActivityTimelineProjection --reset-offsets --to-earliest --execute --topic events
 
-# start app again and it will restore tables from th zeroth offset, see
+# start app again
+go run .
+# and it will restore tables from the zeroth offset, see
 curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 ```
 
-various commands
-``` bash
+# Various commands
+```bash
+# see logs
+docker compose logs -f kafka
+docker compose logs -f postgresql
+
+# see projections
+docker compose exec -it postgresql psql -U postgres
+select * from subscriber order by created_timestamp;
+select * from activity_timeline order by created_timestamp;
+
 docker compose exec -it kafka bash
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group SubscriberProjection --offsets
