@@ -1,4 +1,4 @@
-# Example Golang CQRS application - ordered events with Kafka
+# Example Golang CQRS application
 
 This application is using [Watermill CQRS](http://watermill.io/docs/cqrs) component.
 
