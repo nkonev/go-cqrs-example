@@ -59,7 +59,7 @@ func (m *SubscriberProjection) GetSubscriber(ctx context.Context, subscriberId u
 }
 
 func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email) values ($1, $2)", event.SubscriberId, event.Email)
+	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, time.Now().UTC())
 	if err != nil {
 		return err
 	}

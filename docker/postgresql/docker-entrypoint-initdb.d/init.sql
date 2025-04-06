@@ -1,9 +1,7 @@
-CREATE FUNCTION utc_now() returns TIMESTAMP AS $$ SELECT now() at time zone 'utc' $$ LANGUAGE SQL;
-
 create table subscriber(
     subscriber_id uuid primary key,
     email varchar(256) not null,
-    created_timestamp timestamp default utc_now()
+    created_timestamp timestamp
 );
 
 create table activity_timeline(
