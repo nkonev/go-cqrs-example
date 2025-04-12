@@ -21,6 +21,7 @@ import (
 	"time"
 )
 
+// TODO add traceId into Kafka keaders
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
