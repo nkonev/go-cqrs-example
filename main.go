@@ -21,7 +21,8 @@ import (
 	"time"
 )
 
-// TODO add traceId into Kafka keaders
+// TODO add traceId into Kafka headers
+// TODO think about sequence restoration - introduce an new event
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
