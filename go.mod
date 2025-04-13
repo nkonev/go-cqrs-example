@@ -2,7 +2,7 @@ module main.go
 
 require (
 	github.com/IBM/sarama v1.45.0
-	github.com/ThreeDotsLabs/watermill v1.4.4
+	github.com/ThreeDotsLabs/watermill v1.4.6
 	github.com/ThreeDotsLabs/watermill-kafka/v3 v3.0.6
 	github.com/XSAM/otelsql v0.38.0
 	github.com/gin-gonic/gin v1.10.0
