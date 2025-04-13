@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -10,10 +11,12 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 )
 
-func GenerateMessageMetadata(partitionKey string) *MessageMetadata {
+func GenerateMessageMetadata(ctx context.Context, partitionKey string) *MessageMetadata {
+	traceId := GetTraceId(ctx)
 	return &MessageMetadata{
 		PartitionKey: partitionKey,
 		CreatedAt:    time.Now().UTC(),
+		TraceId:      traceId,
 	}
 }
 
@@ -23,6 +26,7 @@ type CqrsMarshalerDecorator struct {
 
 const PartitionKeyMetadataField = "partition_key"
 const CreatedAtKeyMetadataField = "created_at"
+const TraceIdKeyMetadataField = "trace_id"
 
 func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error) {
 	msg, err := c.JSONMarshaler.Marshal(v)
@@ -42,8 +46,21 @@ func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error)
 
 	msg.Metadata.Set(PartitionKeyMetadataField, metadata.PartitionKey)
 	msg.Metadata.Set(CreatedAtKeyMetadataField, fmt.Sprintf("%v", metadata.CreatedAt.Unix()))
+	msg.Metadata.Set(TraceIdKeyMetadataField, metadata.TraceId)
 
 	return msg, nil
+}
+
+type metadataWrapper struct {
+	message.Metadata
+}
+
+func (m metadataWrapper) Keys() []string {
+	keys := []string{}
+	for k := range m.Metadata {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func (c CqrsMarshalerDecorator) Unmarshal(msg *message.Message, v interface{}) (err error) {
@@ -67,7 +84,10 @@ func (c CqrsMarshalerDecorator) Unmarshal(msg *message.Message, v interface{}) (
 	tm := time.Unix(i, 0).UTC()
 	metadata.CreatedAt = tm
 	metadata.PartitionKey = msg.Metadata.Get(PartitionKeyMetadataField)
+	metadata.TraceId = msg.Metadata.Get(TraceIdKeyMetadataField)
+
 	pm.SetMetadata(metadata)
+
 	return nil
 }
 

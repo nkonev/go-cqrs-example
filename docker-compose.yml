@@ -42,6 +42,25 @@ services:
     environment:
       - POSTGRES_PASSWORD=postgresqlPassword
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.58.1
+    hostname: jaeger
+    container_name: jaeger
+    restart: unless-stopped
+    ports:
+      # https://www.jaegertracing.io/docs/1.54/deployment/
+      - 4317:4317 # OTLP GRPC (other microservices)
+      - 16686:16686 # web ui
+    environment:
+      - QUERY_BASE_PATH=/jaeger
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "1"
+    command:
+      - --memory.max-traces=100000
+
 volumes:
   kafka_data:
   postgres_data:

@@ -5,6 +5,7 @@ import "time"
 type MessageMetadata struct {
 	PartitionKey string
 	CreatedAt    time.Time
+	TraceId      string
 }
 
 type SubscriberSubscribed struct {

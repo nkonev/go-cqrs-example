@@ -12,8 +12,18 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/gin-gonic/gin"
-	sloggin "github.com/samber/slog-gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	jaegerPropagator "go.opentelemetry.io/contrib/propagators/jaeger"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,8 +31,11 @@ import (
 	"time"
 )
 
-// TODO add traceId into Kafka headers
+const TRACE_RESOURCE = "go-cqrs-example"
+const LogFieldTraceId = "trace_id"
+
 // TODO think about sequence restoration - introduce an new event
+// TODO handle duplicated events - change inserts to upserts - when we pasuse for long time in the consumer
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
@@ -105,6 +118,30 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	traceExporterConn, err := grpc.DialContext(context.Background(), "localhost:4317", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	if err != nil {
+		panic(err)
+	}
+
+	exporter, err := otlptracegrpc.New(context.Background(), otlptracegrpc.WithGRPCConn(traceExporterConn))
+	if err != nil {
+		panic(err)
+	}
+	resources := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceNameKey.String(TRACE_RESOURCE),
+	)
+	batchSpanProcessor := sdktrace.NewBatchSpanProcessor(exporter)
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(batchSpanProcessor),
+		sdktrace.WithResource(resources),
+	)
+	otel.SetTracerProvider(tp)
+	aJaegerPropagator := jaegerPropagator.Jaeger{}
+	// register jaeger propagator
+	otel.SetTextMapPropagator(aJaegerPropagator)
 
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
 	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, watermillLoggerAdapter)
@@ -214,7 +251,9 @@ func main() {
 	// https://gin-gonic.com/en/docs/examples/graceful-restart-or-stop/
 	gin.SetMode(gin.ReleaseMode)
 	ginRouter := gin.New()
-	ginRouter.Use(sloggin.New(slogLogger))
+	ginRouter.Use(otelgin.Middleware(TRACE_RESOURCE))
+	ginRouter.Use(StructuredLogMiddleware(slogLogger))
+	ginRouter.Use(WriteTraceToHeaderMiddleware())
 	ginRouter.Use(gin.Recovery())
 
 	makeHttpHandlers(ginRouter, slogLogger, eventBus, subscriberProjection, activityProjection)
@@ -253,11 +292,12 @@ func main() {
 	select {
 	case <-sigterm:
 		slogLogger.Info("terminating: via signal")
-		closeResources(slogLogger, httpServer, cqrsRouter, db)
+		closeResources(slogLogger, httpServer, cqrsRouter, db, tp, traceExporterConn)
 		return
 	case <-appCtx.Done():
 		slogLogger.Info("terminating: due to error")
-		closeResources(slogLogger, httpServer, cqrsRouter, db)
+		closeResources(slogLogger, httpServer, cqrsRouter, db, tp, traceExporterConn)
+		os.Exit(1)
 		return
 	}
 }
@@ -267,7 +307,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		subscriberID := watermill.NewUUID()
 
 		c := Subscribe{
-			Metadata:     GenerateMessageMetadata(subscriberID),
+			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
 			SubscriberId: subscriberID,
 		}
 
@@ -290,7 +330,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		subscriberID := g.Param("id")
 
 		c := UpdateEmail{
-			Metadata:     GenerateMessageMetadata(subscriberID),
+			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
 			SubscriberId: subscriberID,
 			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
 		}
@@ -309,7 +349,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		subscriberID := g.Param("id")
 
 		c := Unsubscribe{
-			Metadata:     GenerateMessageMetadata(subscriberID),
+			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
 			SubscriberId: subscriberID,
 		}
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
@@ -344,7 +384,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 	})
 }
 
-func closeResources(slogLogger *slog.Logger, httpServer *http.Server, cqrsRouter *message.Router, db *sql.DB) {
+func closeResources(slogLogger *slog.Logger, httpServer *http.Server, cqrsRouter *message.Router, db *sql.DB, tp *sdktrace.TracerProvider, traceExporterConn *grpc.ClientConn) {
 	err := httpServer.Shutdown(context.Background())
 	if err != nil {
 		slogLogger.Error("error during close http server", "err", err)
@@ -364,5 +404,94 @@ func closeResources(slogLogger *slog.Logger, httpServer *http.Server, cqrsRouter
 		slogLogger.Error("error during close database", "err", err)
 	} else {
 		slogLogger.Info("database was closed successfully")
+	}
+
+	err = tp.Shutdown(context.Background())
+	if err != nil {
+		slogLogger.Error("error during close tracer", "err", err)
+	} else {
+		slogLogger.Info("tracer was closed successfully")
+	}
+
+	err = traceExporterConn.Close()
+	if err != nil {
+		slogLogger.Error("error during close trace exporter connection", "err", err)
+	} else {
+		slogLogger.Info("trace exporter connection was closed successfully")
+	}
+}
+
+var randSource = rand.New(rand.NewSource(1))
+
+func GetTraceId(ctx context.Context) string {
+	sc := trace.SpanFromContext(ctx).SpanContext()
+	return sc.TraceID().String()
+}
+
+func CreateSpan(ctx context.Context, traceId string, slogLogger *slog.Logger) context.Context {
+	traceID, err := trace.TraceIDFromHex(traceId)
+	if err != nil {
+		slogLogger.Error("Unable to extract traceId from", "hex", traceID)
+		return ctx
+	}
+
+	spanID := trace.SpanID{}
+	_, _ = randSource.Read(spanID[:])
+
+	// https://stackoverflow.com/questions/77161111/golang-set-custom-traceid-and-spanid-in-opentelemetry/77176591#77176591
+	// ContextWithRemoteSpanContext
+	ctxRet := trace.ContextWithSpanContext(
+		ctx,
+		trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID:    traceID,
+			SpanID:     spanID,
+			TraceFlags: trace.FlagsSampled,
+		}),
+	)
+	return ctxRet
+}
+
+func StructuredLogMiddleware(slogLogger *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		traceId := GetTraceId(c.Request.Context())
+
+		// Start timer
+		start := time.Now()
+
+		// Process Request
+		c.Next()
+
+		// Stop timer
+		end := time.Now()
+
+		duration := end.Sub(start)
+
+		entries := []any{
+			"client_ip", c.ClientIP(),
+			"duration", duration,
+			"method", c.Request.Method,
+			"path", c.Request.RequestURI,
+			"status", c.Writer.Status(),
+			"referrer", c.Request.Referer(),
+			LogFieldTraceId, traceId,
+		}
+
+		if c.Writer.Status() >= 500 {
+			slogLogger.Error("Request", entries...)
+		} else {
+			slogLogger.Info("Request", entries...)
+		}
+	}
+}
+
+func WriteTraceToHeaderMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		traceId := GetTraceId(c.Request.Context())
+
+		c.Writer.Header().Set("trace-id", traceId)
+
+		// Process Request
+		c.Next()
+
 	}
 }
