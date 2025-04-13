@@ -12,12 +12,14 @@ import (
 )
 
 type SubscriberProjection struct {
-	db *sql.DB
+	db         *sql.DB
+	slogLogger *slog.Logger
 }
 
-func NewSubscriberProjection(db *sql.DB) *SubscriberProjection {
+func NewSubscriberProjection(db *sql.DB, slogLogger *slog.Logger) *SubscriberProjection {
 	return &SubscriberProjection{
-		db: db,
+		db:         db,
+		slogLogger: slogLogger,
 	}
 }
 
@@ -72,13 +74,16 @@ func (m *SubscriberProjection) GetNextEmailId(ctx context.Context) (int64, error
 }
 
 func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, event.GetMetadata().CreatedAt)
+	_, err := m.db.ExecContext(ctx, `
+		insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)
+		on conflict(subscriber_id) do update set email = excluded.email, created_timestamp = excluded.created_timestamp
+	`, event.SubscriberId, event.Email, event.GetMetadata().CreatedAt)
 	if err != nil {
 		return err
 	}
 	traceId := GetTraceId(ctx)
 
-	slog.Info(
+	m.slogLogger.Info(
 		"Subscriber added",
 		"subscriber_id", event.SubscriberId,
 		"email", event.Email,
@@ -95,7 +100,7 @@ func (m *SubscriberProjection) OnUnsubscribed(ctx context.Context, event *Subscr
 	}
 	traceId := GetTraceId(ctx)
 
-	slog.Info(
+	m.slogLogger.Info(
 		"Subscriber removed",
 		"subscriber_id", event.SubscriberId,
 		LogFieldTraceId, traceId,
@@ -111,7 +116,7 @@ func (m *SubscriberProjection) OnEmailUpdated(ctx context.Context, event *Subscr
 	}
 	traceId := GetTraceId(ctx)
 
-	slog.Info(
+	m.slogLogger.Info(
 		"Subscriber updated",
 		"subscriber_id", event.SubscriberId,
 		"email", event.NewEmail,
@@ -131,13 +136,26 @@ type ActivityEntry struct {
 
 // ActivityTimelineProjection maintains a chronological log of all subscription-related events
 type ActivityTimelineProjection struct {
-	db *sql.DB
+	db         *sql.DB
+	slogLogger *slog.Logger
 }
 
-func NewActivityTimelineProjection(db *sql.DB) *ActivityTimelineProjection {
+func NewActivityTimelineProjection(db *sql.DB, slogLogger *slog.Logger) *ActivityTimelineProjection {
 	return &ActivityTimelineProjection{
-		db: db,
+		db:         db,
+		slogLogger: slogLogger,
 	}
+}
+
+func (m *ActivityTimelineProjection) insertActivity(ctx context.Context, entry *ActivityEntry) error {
+	_, err := m.db.ExecContext(ctx, `
+		insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)
+		on conflict(created_timestamp) do update set subscriber_id = excluded.subscriber_id, activity_type = excluded.activity_type, details = excluded.details
+	`, entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // OnSubscribed handles subscription events
@@ -149,7 +167,7 @@ func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *Su
 		Details:      fmt.Sprintf("Subscribed with email: %s", event.Email),
 	}
 
-	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	err := m.insertActivity(ctx, &entry)
 	if err != nil {
 		return err
 	}
@@ -167,7 +185,7 @@ func (m *ActivityTimelineProjection) OnUnsubscribed(ctx context.Context, event *
 		Details:      "Subscriber unsubscribed",
 	}
 
-	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	err := m.insertActivity(ctx, &entry)
 	if err != nil {
 		return err
 	}
@@ -186,7 +204,7 @@ func (m *ActivityTimelineProjection) OnEmailUpdated(ctx context.Context, event *
 		Details:      fmt.Sprintf("Email updated to: %s", event.NewEmail),
 	}
 
-	_, err := m.db.ExecContext(ctx, "insert into activity_timeline(created_timestamp, subscriber_id, activity_type, details) values ($1, $2, $3, $4)", entry.Timestamp, entry.SubscriberID, entry.ActivityType, entry.Details)
+	err := m.insertActivity(ctx, &entry)
 	if err != nil {
 		return err
 	}
@@ -197,7 +215,7 @@ func (m *ActivityTimelineProjection) OnEmailUpdated(ctx context.Context, event *
 
 func (m *ActivityTimelineProjection) logActivity(ctx context.Context, entry ActivityEntry) {
 	traceId := GetTraceId(ctx)
-	slog.Info(
+	m.slogLogger.Info(
 		"[ACTIVITY]",
 		"activity_type", entry.ActivityType,
 		"subscriber_id", entry.SubscriberID,

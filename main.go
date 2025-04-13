@@ -36,7 +36,6 @@ const TRACE_RESOURCE = "go-cqrs-example"
 const LogFieldTraceId = "trace_id"
 
 // TODO think about sequence restoration - introduce an new event
-// TODO handle duplicated events - change inserts to upserts - when we pasuse for long time in the consumer
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
@@ -230,7 +229,7 @@ func main() {
 		panic(err)
 	}
 
-	subscriberProjection := NewSubscriberProjection(db)
+	subscriberProjection := NewSubscriberProjection(db, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
@@ -244,7 +243,7 @@ func main() {
 		panic(err)
 	}
 
-	activityProjection := NewActivityTimelineProjection(db)
+	activityProjection := NewActivityTimelineProjection(db, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
@@ -326,7 +325,8 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
 
 		if err != nil {
-			slogLogger.Error("Error sending Subscribe command", "err", err)
+			traceId := GetTraceId(g.Request.Context())
+			slogLogger.Error("Error sending Subscribe command", "err", err, LogFieldTraceId, traceId)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -347,8 +347,10 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
 		}
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
+
 		if err != nil {
-			slogLogger.Error("Error sending UpdateEmail command", "err", err)
+			traceId := GetTraceId(g.Request.Context())
+			slogLogger.Error("Error sending UpdateEmail command", "err", err, LogFieldTraceId, traceId)
 			m := map[string]string{
 				"msg": err.Error(),
 			}
@@ -366,7 +368,8 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		}
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
 		if err != nil {
-			slogLogger.Error("Error sending Unsubscribe command", "err", err)
+			traceId := GetTraceId(g.Request.Context())
+			slogLogger.Error("Error sending Unsubscribe command", "err", err, LogFieldTraceId, traceId)
 			m := map[string]string{
 				"msg": err.Error(),
 			}
@@ -378,7 +381,8 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 	ginRouter.GET("/subscribers", func(g *gin.Context) {
 		subscribers, err := subscriberProjection.GetSubscribers(g.Request.Context())
 		if err != nil {
-			slogLogger.Error("Error getting subscribers", "err", err)
+			traceId := GetTraceId(g.Request.Context())
+			slogLogger.Error("Error getting subscribers", "err", err, LogFieldTraceId, traceId)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -388,7 +392,8 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 	ginRouter.GET("/activities", func(g *gin.Context) {
 		activities, err := activityProjection.GetActivities(g.Request.Context())
 		if err != nil {
-			slogLogger.Error("Error getting activities", "err", err)
+			traceId := GetTraceId(g.Request.Context())
+			slogLogger.Error("Error getting activities", "err", err, LogFieldTraceId, traceId)
 			g.Status(http.StatusInternalServerError)
 			return
 		}

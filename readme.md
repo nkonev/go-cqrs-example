@@ -19,16 +19,16 @@ go run .
 # Play with
 ```bash
 # create a subscriber
-curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/subscribe'
+curl -i -X POST --url 'http://localhost:8080/subscribe'
 
 # see subscribers
 curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
 
 # update the subscriber
-curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
+curl -i -X PUT --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
 
 # unsubscribe
-curl -i -X POST -H 'Content-Type: application/json' --url 'http://localhost:8080/unsubscribe/216681f5-e73e-4461-926e-019445b9913b'
+curl -i -X POST --url 'http://localhost:8080/unsubscribe/216681f5-e73e-4461-926e-019445b9913b'
 
 # see activities
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
