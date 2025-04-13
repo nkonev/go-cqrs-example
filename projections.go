@@ -72,13 +72,11 @@ func (m *SubscriberProjection) GetNextEmailId(ctx context.Context) (int64, error
 }
 
 func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	spanCtx := CreateSpan(ctx, event.GetMetadata().TraceId, slog.Default())
-
-	_, err := m.db.ExecContext(spanCtx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, event.GetMetadata().CreatedAt)
+	_, err := m.db.ExecContext(ctx, "insert into subscriber(subscriber_id, email, created_timestamp) values ($1, $2, $3)", event.SubscriberId, event.Email, event.GetMetadata().CreatedAt)
 	if err != nil {
 		return err
 	}
-	traceId := GetTraceId(spanCtx)
+	traceId := GetTraceId(ctx)
 
 	slog.Info(
 		"Subscriber added",
@@ -144,8 +142,6 @@ func NewActivityTimelineProjection(db *sql.DB) *ActivityTimelineProjection {
 
 // OnSubscribed handles subscription events
 func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *SubscriberSubscribed) error {
-	spanCtx := CreateSpan(ctx, event.GetMetadata().TraceId, slog.Default())
-
 	entry := ActivityEntry{
 		Timestamp:    event.GetMetadata().CreatedAt,
 		SubscriberID: event.SubscriberId,
@@ -158,7 +154,7 @@ func (m *ActivityTimelineProjection) OnSubscribed(ctx context.Context, event *Su
 		return err
 	}
 
-	m.logActivity(spanCtx, entry)
+	m.logActivity(ctx, entry)
 	return nil
 }
 

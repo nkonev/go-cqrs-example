@@ -12,6 +12,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/gin-gonic/gin"
+	wotel "github.com/voi-oss/watermill-opentelemetry/pkg/opentelemetry"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	jaegerPropagator "go.opentelemetry.io/contrib/propagators/jaeger"
 	"go.opentelemetry.io/otel"
@@ -107,18 +108,6 @@ func main() {
 	kafkaProducerConfig.Metadata.Retry.Backoff = time.Second * 2
 	kafkaProducerConfig.ClientID = "go-cqrs-producer"
 
-	publisher, err := kafka.NewPublisher(
-		kafka.PublisherConfig{
-			Brokers:               kafkaBootstrapServers,
-			OverwriteSaramaConfig: kafkaProducerConfig,
-			Marshaler:             kafkaMarshaler,
-		},
-		watermillLogger,
-	)
-	if err != nil {
-		panic(err)
-	}
-
 	traceExporterConn, err := grpc.DialContext(context.Background(), "localhost:4317", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	if err != nil {
 		panic(err)
@@ -143,6 +132,20 @@ func main() {
 	// register jaeger propagator
 	otel.SetTextMapPropagator(aJaegerPropagator)
 
+	publisher, err := kafka.NewPublisher(
+		kafka.PublisherConfig{
+			Brokers:               kafkaBootstrapServers,
+			OverwriteSaramaConfig: kafkaProducerConfig,
+			Marshaler:             kafkaMarshaler,
+		},
+		watermillLogger,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	decoratedPublisher := wotel.NewPublisherDecorator(publisher)
+
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
 	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, watermillLoggerAdapter)
 	if err != nil {
@@ -155,6 +158,7 @@ func main() {
 	//
 	// List of available middlewares you can find in message/router/middleware.
 	cqrsRouter.AddMiddleware(middleware.Recoverer)
+	cqrsRouter.AddMiddleware(wotel.Trace())
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			slogLogger.Debug("Received message", "metadata", msg.Metadata)
@@ -162,7 +166,7 @@ func main() {
 		}
 	})
 
-	eventBus, err := cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
+	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
 		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
 			// We are using one topic for all events to maintain the order of events.
 			return topicName, nil
