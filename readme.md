@@ -53,6 +53,9 @@ curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
 curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
 ```
 
+# Tracing
+See `Trace-Id` header and put its value into [Jaeger UI](http://localhost:16686)
+
 # Various commands
 ```bash
 # see logs
