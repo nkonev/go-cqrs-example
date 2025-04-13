@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"log/slog"
 	"strconv"
 	"time"
@@ -47,18 +48,6 @@ func (c CqrsMarshalerDecorator) Marshal(v interface{}) (*message.Message, error)
 	return msg, nil
 }
 
-type metadataWrapper struct {
-	message.Metadata
-}
-
-func (m metadataWrapper) Keys() []string {
-	keys := []string{}
-	for k := range m.Metadata {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 func (c CqrsMarshalerDecorator) Unmarshal(msg *message.Message, v interface{}) (err error) {
 	err = c.JSONMarshaler.Unmarshal(msg, v)
 	if err != nil {
@@ -92,8 +81,10 @@ type JsonMessage interface {
 }
 
 // GenerateKafkaPartitionKey is a function that generates a partition key for Kafka messages.
-func GenerateKafkaPartitionKey(topic string, msg *message.Message) (string, error) {
-	slog.Debug("Setting partition key", "topic", topic, "msg_metadata", msg.Metadata)
+func GenerateKafkaPartitionKey(slogLogger *slog.Logger) kafka.GeneratePartitionKey {
+	return func(topic string, msg *message.Message) (string, error) {
+		LogWithTrace(msg.Context(), slogLogger).Debug("Setting partition key", "topic", topic, "msg_metadata", msg.Metadata)
 
-	return msg.Metadata.Get(PartitionKeyMetadataField), nil
+		return msg.Metadata.Get(PartitionKeyMetadataField), nil
+	}
 }

@@ -97,7 +97,7 @@ func main() {
 
 	// This marshaler converts Watermill messages to Kafka messages.
 	// We are using it to add partition key to the Kafka message.
-	kafkaMarshaler := kafka.NewWithPartitioningMarshaler(GenerateKafkaPartitionKey)
+	kafkaMarshaler := kafka.NewWithPartitioningMarshaler(GenerateKafkaPartitionKey(slogLogger))
 
 	// You can use any Pub/Sub implementation from here: https://watermill.io/pubsubs/
 	kafkaProducerConfig := sarama.NewConfig()
@@ -160,7 +160,7 @@ func main() {
 	cqrsRouter.AddMiddleware(wotel.Trace())
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
-			slogLogger.Debug("Received message", "metadata", msg.Metadata)
+			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
 			return h(msg)
 		}
 	})
