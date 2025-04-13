@@ -190,12 +190,8 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
-github.com/nkonev/watermill-opentelemetry v0.1.4 h1:aetvU8JU9fg8I4Bw8M/m+JGkX9VYkhv2TkYFoolHIig=
-github.com/nkonev/watermill-opentelemetry v0.1.4/go.mod h1:iVjCUBZbDDxruj1Ck8/DPD0LXhRVZV8ZX7UPcuLvbEU=
-github.com/nkonev/watermill-opentelemetry v0.1.5 h1:g5w69ri2CROSd+JUYYyEMxFRP9LQdx84saWRZ8glBFU=
-github.com/nkonev/watermill-opentelemetry v0.1.5/go.mod h1:iVjCUBZbDDxruj1Ck8/DPD0LXhRVZV8ZX7UPcuLvbEU=
-github.com/nkonev/watermill-opentelemetry v0.1.6 h1:6pXwFZCUeWHq8v76n8/DWJEMi4RTVeQjR7M0TnpLjNE=
-github.com/nkonev/watermill-opentelemetry v0.1.6/go.mod h1:iVjCUBZbDDxruj1Ck8/DPD0LXhRVZV8ZX7UPcuLvbEU=
+github.com/nkonev/watermill-opentelemetry v0.1.7 h1:Y9teSHjLYzh077KCYoXTw9buOsfrkP609c+Hw4rBOO0=
+github.com/nkonev/watermill-opentelemetry v0.1.7/go.mod h1:iVjCUBZbDDxruj1Ck8/DPD0LXhRVZV8ZX7UPcuLvbEU=
 github.com/oklog/ulid v1.3.1 h1:EGfNDEx6MqHz8B3uNV6QAib1UR2Lm97sHi3ocA6ESJ4=
 github.com/oklog/ulid v1.3.1/go.mod h1:CirwcVhetQ6Lv90oh/F+FBtV6XMibvdAFo93nm5qn4U=
 github.com/pelletier/go-toml/v2 v2.2.3 h1:YmeHyLY8mFWbdkNWwpr+qIL2bEqT0o95WSdkNHvL12M=
