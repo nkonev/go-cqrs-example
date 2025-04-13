@@ -325,8 +325,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
 
 		if err != nil {
-			traceId := GetTraceId(g.Request.Context())
-			slogLogger.Error("Error sending Subscribe command", "err", err, LogFieldTraceId, traceId)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending Subscribe command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -349,8 +348,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
 
 		if err != nil {
-			traceId := GetTraceId(g.Request.Context())
-			slogLogger.Error("Error sending UpdateEmail command", "err", err, LogFieldTraceId, traceId)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending UpdateEmail command", "err", err)
 			m := map[string]string{
 				"msg": err.Error(),
 			}
@@ -368,8 +366,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		}
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)
 		if err != nil {
-			traceId := GetTraceId(g.Request.Context())
-			slogLogger.Error("Error sending Unsubscribe command", "err", err, LogFieldTraceId, traceId)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending Unsubscribe command", "err", err)
 			m := map[string]string{
 				"msg": err.Error(),
 			}
@@ -381,8 +378,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 	ginRouter.GET("/subscribers", func(g *gin.Context) {
 		subscribers, err := subscriberProjection.GetSubscribers(g.Request.Context())
 		if err != nil {
-			traceId := GetTraceId(g.Request.Context())
-			slogLogger.Error("Error getting subscribers", "err", err, LogFieldTraceId, traceId)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error getting subscribers", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -392,8 +388,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 	ginRouter.GET("/activities", func(g *gin.Context) {
 		activities, err := activityProjection.GetActivities(g.Request.Context())
 		if err != nil {
-			traceId := GetTraceId(g.Request.Context())
-			slogLogger.Error("Error getting activities", "err", err, LogFieldTraceId, traceId)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error getting activities", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -441,6 +436,10 @@ func closeResources(slogLogger *slog.Logger, httpServer *http.Server, cqrsRouter
 func GetTraceId(ctx context.Context) string {
 	sc := trace.SpanFromContext(ctx).SpanContext()
 	return sc.TraceID().String()
+}
+
+func LogWithTrace(ctx context.Context, slogLogger *slog.Logger) *slog.Logger {
+	return slogLogger.With(LogFieldTraceId, GetTraceId(ctx))
 }
 
 func StructuredLogMiddleware(slogLogger *slog.Logger) gin.HandlerFunc {

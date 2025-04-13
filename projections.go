@@ -81,13 +81,10 @@ func (m *SubscriberProjection) OnSubscribed(ctx context.Context, event *Subscrib
 	if err != nil {
 		return err
 	}
-	traceId := GetTraceId(ctx)
-
-	m.slogLogger.Info(
+	LogWithTrace(ctx, m.slogLogger).Info(
 		"Subscriber added",
 		"subscriber_id", event.SubscriberId,
 		"email", event.Email,
-		LogFieldTraceId, traceId,
 	)
 
 	return nil
@@ -98,12 +95,9 @@ func (m *SubscriberProjection) OnUnsubscribed(ctx context.Context, event *Subscr
 	if err != nil {
 		return err
 	}
-	traceId := GetTraceId(ctx)
-
-	m.slogLogger.Info(
+	LogWithTrace(ctx, m.slogLogger).Info(
 		"Subscriber removed",
 		"subscriber_id", event.SubscriberId,
-		LogFieldTraceId, traceId,
 	)
 
 	return nil
@@ -114,13 +108,10 @@ func (m *SubscriberProjection) OnEmailUpdated(ctx context.Context, event *Subscr
 	if err != nil {
 		return err
 	}
-	traceId := GetTraceId(ctx)
-
-	m.slogLogger.Info(
+	LogWithTrace(ctx, m.slogLogger).Info(
 		"Subscriber updated",
 		"subscriber_id", event.SubscriberId,
 		"email", event.NewEmail,
-		LogFieldTraceId, traceId,
 	)
 
 	return nil
@@ -214,13 +205,11 @@ func (m *ActivityTimelineProjection) OnEmailUpdated(ctx context.Context, event *
 }
 
 func (m *ActivityTimelineProjection) logActivity(ctx context.Context, entry ActivityEntry) {
-	traceId := GetTraceId(ctx)
-	m.slogLogger.Info(
+	LogWithTrace(ctx, m.slogLogger).Info(
 		"[ACTIVITY]",
 		"activity_type", entry.ActivityType,
 		"subscriber_id", entry.SubscriberID,
 		"details", entry.Details,
-		LogFieldTraceId, traceId,
 	)
 }
 
