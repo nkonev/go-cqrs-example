@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/google/uuid"
 )
 
@@ -23,7 +22,7 @@ type UpdateEmail struct {
 	NewEmail     string
 }
 
-func (s *Subscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
+func (s *Subscribe) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
 	emailId, err := subscriberProjection.GetNextEmailId(ctx)
 	if err != nil {
 		return err
@@ -31,14 +30,16 @@ func (s *Subscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscri
 
 	email := fmt.Sprintf("user%d@example.com", emailId)
 
-	return eventBus.Publish(ctx, &SubscriberSubscribed{
+	e := &SubscriberSubscribed{
 		Metadata:     s.Metadata,
 		SubscriberId: s.SubscriberId,
 		Email:        email,
-	})
+	}
+
+	return eventBus.Publish(ctx, e)
 }
 
-func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
+func (s *Unsubscribe) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
 	// here is logic with business rules validation
 	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
 	if err != nil {
@@ -48,13 +49,15 @@ func (s *Unsubscribe) Handle(ctx context.Context, eventBus *cqrs.EventBus, subsc
 		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
 	}
 
-	return eventBus.Publish(ctx, &SubscriberUnsubscribed{
+	e := &SubscriberUnsubscribed{
 		Metadata:     s.Metadata,
 		SubscriberId: s.SubscriberId,
-	})
+	}
+
+	return eventBus.Publish(ctx, e)
 }
 
-func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection) error {
+func (s *UpdateEmail) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
 	// here is logic with business rules validation
 	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
 	if err != nil {
@@ -64,9 +67,11 @@ func (s *UpdateEmail) Handle(ctx context.Context, eventBus *cqrs.EventBus, subsc
 		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
 	}
 
-	return eventBus.Publish(ctx, &SubscriberEmailUpdated{
+	e := &SubscriberEmailUpdated{
 		Metadata:     s.Metadata,
 		SubscriberId: s.SubscriberId,
 		NewEmail:     s.NewEmail,
-	})
+	}
+
+	return eventBus.Publish(ctx, e)
 }

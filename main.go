@@ -78,14 +78,12 @@ func main() {
 	}
 
 	// We are decorating ProtobufMarshaler to add extra metadata to the message.
-	cqrsMarshaler := CqrsMarshalerDecorator{
-		cqrs.JSONMarshaler{
-			// It will generate topic names based on the event/command type.
-			// So for example, for "RoomBooked" name will be "RoomBooked".
-			GenerateName: cqrs.NamedStruct(func(v interface{}) string {
-				panic(fmt.Sprintf("not implemented Name() for %T", v))
-			}),
-		},
+	cqrsMarshaler := cqrs.JSONMarshaler{
+		// It will generate topic names based on the event/command type.
+		// So for example, for "RoomBooked" name will be "RoomBooked".
+		GenerateName: cqrs.NamedStruct(func(v interface{}) string {
+			panic(fmt.Sprintf("not implemented Name() for %T", v))
+		}),
 	}
 
 	watermillLogger := watermill.NewSlogLoggerWithLevelMapping(
@@ -165,7 +163,7 @@ func main() {
 		}
 	})
 
-	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
+	eventBusRoot, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
 		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
 			// We are using one topic for all events to maintain the order of events.
 			return topicName, nil
@@ -176,6 +174,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	eventBus := PartitionAwareEventBus{eventBusRoot}
 
 	kafkaConsumerConfig := sarama.NewConfig()
 	kafkaConsumerConfig.Consumer.Return.Errors = true
@@ -267,7 +267,7 @@ func main() {
 	ginRouter.Use(WriteTraceToHeaderMiddleware())
 	ginRouter.Use(gin.Recovery())
 
-	makeHttpHandlers(ginRouter, slogLogger, eventBus, subscriberProjection, activityProjection)
+	makeHttpHandlers(ginRouter, slogLogger, &eventBus, subscriberProjection, activityProjection)
 
 	httpServer := &http.Server{
 		Addr:           ":8080",
@@ -313,12 +313,12 @@ func main() {
 	}
 }
 
-func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *cqrs.EventBus, subscriberProjection *SubscriberProjection, activityProjection *ActivityTimelineProjection) {
+func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, subscriberProjection *SubscriberProjection, activityProjection *ActivityTimelineProjection) {
 	ginRouter.POST("/subscribe", func(g *gin.Context) {
 		subscriberID := watermill.NewUUID()
 
 		c := Subscribe{
-			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
+			Metadata:     GenerateMessageMetadata(),
 			SubscriberId: subscriberID,
 		}
 
@@ -341,7 +341,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		subscriberID := g.Param("id")
 
 		c := UpdateEmail{
-			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
+			Metadata:     GenerateMessageMetadata(),
 			SubscriberId: subscriberID,
 			NewEmail:     fmt.Sprintf("updated%d@example.com", time.Now().UTC().Unix()),
 		}
@@ -361,7 +361,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus *
 		subscriberID := g.Param("id")
 
 		c := Unsubscribe{
-			Metadata:     GenerateMessageMetadata(g.Request.Context(), subscriberID),
+			Metadata:     GenerateMessageMetadata(),
 			SubscriberId: subscriberID,
 		}
 		err := c.Handle(g.Request.Context(), eventBus, subscriberProjection)

@@ -3,49 +3,42 @@ package main
 import "time"
 
 type MessageMetadata struct {
-	PartitionKey string
-	CreatedAt    time.Time
+	CreatedAt time.Time
 }
 
 type SubscriberSubscribed struct {
-	Metadata     *MessageMetadata `json:"-"`
+	Metadata     *MessageMetadata `json:"metadata"`
 	SubscriberId string           `json:"subscriber_id"`
 	Email        string           `json:"email"`
 }
 
 type SubscriberUnsubscribed struct {
-	Metadata     *MessageMetadata `json:"-"`
+	Metadata     *MessageMetadata `json:"metadata"`
 	SubscriberId string           `json:"subscriber_id"`
 }
 
 type SubscriberEmailUpdated struct {
-	Metadata     *MessageMetadata `json:"-"`
+	Metadata     *MessageMetadata `json:"metadata"`
 	SubscriberId string           `json:"subscriber_id"`
 	NewEmail     string           `json:"new_email"`
 }
 
-func (s *SubscriberSubscribed) GetMetadata() *MessageMetadata {
-	return s.Metadata
+func GenerateMessageMetadata() *MessageMetadata {
+	return &MessageMetadata{
+		CreatedAt: time.Now().UTC(),
+	}
 }
 
-func (s *SubscriberUnsubscribed) GetMetadata() *MessageMetadata {
-	return s.Metadata
+func (s *SubscriberSubscribed) GetPartitionKey() string {
+	return s.SubscriberId
 }
 
-func (s *SubscriberEmailUpdated) GetMetadata() *MessageMetadata {
-	return s.Metadata
+func (s *SubscriberUnsubscribed) GetPartitionKey() string {
+	return s.SubscriberId
 }
 
-func (s *SubscriberSubscribed) SetMetadata(m *MessageMetadata) {
-	s.Metadata = m
-}
-
-func (s *SubscriberUnsubscribed) SetMetadata(m *MessageMetadata) {
-	s.Metadata = m
-}
-
-func (s *SubscriberEmailUpdated) SetMetadata(m *MessageMetadata) {
-	s.Metadata = m
+func (s *SubscriberEmailUpdated) GetPartitionKey() string {
+	return s.SubscriberId
 }
 
 func (s *SubscriberSubscribed) Name() string {
