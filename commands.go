@@ -2,76 +2,64 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"github.com/google/uuid"
+	"errors"
 )
 
-type Subscribe struct {
-	Metadata     *AdditionalData
-	SubscriberId string
+type ChatCreate struct {
+	AdditionalData *AdditionalData
+	Title          string
+	ParticipantIds []int64
 }
 
-type Unsubscribe struct {
-	Metadata     *AdditionalData
-	SubscriberId string
+type ChatPin struct {
+	AdditionalData *AdditionalData
+	ChatId         int64
+	Pin            bool
+	ParticipantId  int64
 }
 
-type UpdateEmail struct {
-	Metadata     *AdditionalData
-	SubscriberId string
-	NewEmail     string
-}
-
-func (s *Subscribe) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
-	emailId, err := subscriberProjection.GetNextEmailId(ctx)
+func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) (int64, error) {
+	chatId, err := commonProjection.GetNextChatId(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	email := fmt.Sprintf("user%d@example.com", emailId)
-
-	e := &SubscriberSubscribed{
-		AdditionalData: s.Metadata,
-		SubscriberId:   s.SubscriberId,
-		Email:          email,
+	cc := &ChatCreated{
+		AdditionalData: s.AdditionalData,
+		ChatId:         chatId,
+		Title:          s.Title,
+	}
+	err = eventBus.Publish(ctx, cc)
+	if err != nil {
+		return 0, err
 	}
 
-	return eventBus.Publish(ctx, e)
+	addParticipantErrors := []error{}
+	for _, participantId := range s.ParticipantIds {
+		pa := &ParticipantAdded{
+			AdditionalData: s.AdditionalData,
+			ParticipantId:  participantId,
+			ChatId:         chatId,
+		}
+		err = eventBus.Publish(ctx, pa)
+		if err != nil {
+			addParticipantErrors = append(addParticipantErrors, err)
+		}
+	}
+
+	if len(addParticipantErrors) > 0 {
+		return 0, errors.Join(addParticipantErrors...)
+	}
+
+	return chatId, nil
 }
 
-func (s *Unsubscribe) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
-	// here is logic with business rules validation
-	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
-	if err != nil {
-		return err
+func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error {
+	cp := &ChatPinned{
+		AdditionalData: s.AdditionalData,
+		ParticipantId:  s.ParticipantId,
+		ChatId:         s.ChatId,
+		Pinned:         s.Pin,
 	}
-	if subscriber == NoSubscriber {
-		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
-	}
-
-	e := &SubscriberUnsubscribed{
-		Metadata:     s.Metadata,
-		SubscriberId: s.SubscriberId,
-	}
-
-	return eventBus.Publish(ctx, e)
-}
-
-func (s *UpdateEmail) Handle(ctx context.Context, eventBus EventBusInterface, subscriberProjection *SubscriberProjection) error {
-	// here is logic with business rules validation
-	subscriber, err := subscriberProjection.GetSubscriber(ctx, uuid.MustParse(s.SubscriberId))
-	if err != nil {
-		return err
-	}
-	if subscriber == NoSubscriber {
-		return fmt.Errorf("Subscriber with id = %v isn't found", s.SubscriberId)
-	}
-
-	e := &SubscriberEmailUpdated{
-		Metadata:     s.Metadata,
-		SubscriberId: s.SubscriberId,
-		NewEmail:     s.NewEmail,
-	}
-
-	return eventBus.Publish(ctx, e)
+	return eventBus.Publish(ctx, cp)
 }

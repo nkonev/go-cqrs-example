@@ -18,20 +18,14 @@ go run .
 
 # Play with
 ```bash
-# create a subscriber
-curl -i -X POST --url 'http://localhost:8080/subscribe'
+# create a chat
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
 
-# see subscribers
-curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
+# see chats
+curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
 
-# update the subscriber
-curl -i -X PUT --url 'http://localhost:8080/update/216681f5-e73e-4461-926e-019445b9913b'
-
-# unsubscribe
-curl -i -X POST --url 'http://localhost:8080/unsubscribe/216681f5-e73e-4461-926e-019445b9913b'
-
-# see activities
-curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+# pin chat
+curl -i -X PUT -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/pin?pin=true'
 
 # clear projections
 docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; truncate activity_timeline;'

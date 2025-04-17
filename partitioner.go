@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -13,18 +12,14 @@ import (
 const partitionKey = "partition_key"
 
 type EventBusInterface interface {
-	Publish(ctx context.Context, event any) error
+	Publish(ctx context.Context, event PartitionableMessage) error
 }
 
 type PartitionAwareEventBus struct {
 	eventBus *cqrs.EventBus
 }
 
-func (w *PartitionAwareEventBus) Publish(ctx context.Context, event any) error {
-	pm, ok := event.(PartitionableMessage)
-	if !ok {
-		return fmt.Errorf("%T should implement PartitionableMessage", event)
-	}
+func (w *PartitionAwareEventBus) Publish(ctx context.Context, pm PartitionableMessage) error {
 	return w.eventBus.Publish(makeContextWithPartitionKey(ctx, pm), pm)
 }
 

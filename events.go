@@ -3,52 +3,54 @@ package main
 import "time"
 
 type AdditionalData struct {
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-type SubscriberSubscribed struct {
-	AdditionalData *AdditionalData `json:"additional_data"`
-	SubscriberId   string          `json:"subscriber_id"`
-	Email          string          `json:"email"`
+type ChatCreated struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ChatId         int64           `json:"chatId"`
+	Title          string          `json:"title"`
 }
 
-type SubscriberUnsubscribed struct {
-	Metadata     *AdditionalData `json:"additional_data"`
-	SubscriberId string          `json:"subscriber_id"`
+type ParticipantAdded struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ParticipantId  int64           `json:"participantId"`
+	ChatId         int64           `json:"chatId"`
 }
 
-type SubscriberEmailUpdated struct {
-	Metadata     *AdditionalData `json:"additional_data"`
-	SubscriberId string          `json:"subscriber_id"`
-	NewEmail     string          `json:"new_email"`
+type ChatPinned struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ParticipantId  int64           `json:"participantId"`
+	ChatId         int64           `json:"chatId"`
+	Pinned         bool            `json:"pinned"`
 }
 
-func GenerateMessageMetadata() *AdditionalData {
+func GenerateMessageAdditionalData() *AdditionalData {
 	return &AdditionalData{
 		CreatedAt: time.Now().UTC(),
 	}
 }
 
-func (s *SubscriberSubscribed) GetPartitionKey() string {
-	return s.SubscriberId
+func (s *ChatCreated) GetPartitionKey() string {
+	return ToString(s.ChatId)
 }
 
-func (s *SubscriberUnsubscribed) GetPartitionKey() string {
-	return s.SubscriberId
+func (s *ParticipantAdded) GetPartitionKey() string {
+	return ToString(s.ChatId)
 }
 
-func (s *SubscriberEmailUpdated) GetPartitionKey() string {
-	return s.SubscriberId
+func (s *ChatPinned) GetPartitionKey() string {
+	return ToString(s.ChatId) // TODO think about userId partitioning
 }
 
-func (s *SubscriberSubscribed) Name() string {
-	return "subscriber_subscribed"
+func (s *ChatCreated) Name() string {
+	return "chatCreated"
 }
 
-func (s *SubscriberUnsubscribed) Name() string {
-	return "subscriber_unsubscribed"
+func (s *ParticipantAdded) Name() string {
+	return "participantAdded"
 }
 
-func (s *SubscriberEmailUpdated) Name() string {
-	return "subscriber_email_updated"
+func (s *ChatPinned) Name() string {
+	return "chatPinned"
 }
