@@ -23,7 +23,7 @@ type PartitionAwareEventBus struct {
 func (w *PartitionAwareEventBus) Publish(ctx context.Context, event any) error {
 	pm, ok := event.(PartitionableMessage)
 	if !ok {
-		return fmt.Errorf("%T should implement PartitionableMessage")
+		return fmt.Errorf("%T should implement PartitionableMessage", event)
 	}
 	return w.eventBus.Publish(makeContextWithPartitionKey(ctx, pm), pm)
 }

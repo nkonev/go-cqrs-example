@@ -2,29 +2,29 @@ package main
 
 import "time"
 
-type MessageMetadata struct {
-	CreatedAt time.Time
+type AdditionalData struct {
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type SubscriberSubscribed struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
-	Email        string           `json:"email"`
+	AdditionalData *AdditionalData `json:"additional_data"`
+	SubscriberId   string          `json:"subscriber_id"`
+	Email          string          `json:"email"`
 }
 
 type SubscriberUnsubscribed struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
+	Metadata     *AdditionalData `json:"additional_data"`
+	SubscriberId string          `json:"subscriber_id"`
 }
 
 type SubscriberEmailUpdated struct {
-	Metadata     *MessageMetadata `json:"metadata"`
-	SubscriberId string           `json:"subscriber_id"`
-	NewEmail     string           `json:"new_email"`
+	Metadata     *AdditionalData `json:"additional_data"`
+	SubscriberId string          `json:"subscriber_id"`
+	NewEmail     string          `json:"new_email"`
 }
 
-func GenerateMessageMetadata() *MessageMetadata {
-	return &MessageMetadata{
+func GenerateMessageMetadata() *AdditionalData {
+	return &AdditionalData{
 		CreatedAt: time.Now().UTC(),
 	}
 }

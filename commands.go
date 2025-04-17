@@ -7,17 +7,17 @@ import (
 )
 
 type Subscribe struct {
-	Metadata     *MessageMetadata
+	Metadata     *AdditionalData
 	SubscriberId string
 }
 
 type Unsubscribe struct {
-	Metadata     *MessageMetadata
+	Metadata     *AdditionalData
 	SubscriberId string
 }
 
 type UpdateEmail struct {
-	Metadata     *MessageMetadata
+	Metadata     *AdditionalData
 	SubscriberId string
 	NewEmail     string
 }
@@ -31,9 +31,9 @@ func (s *Subscribe) Handle(ctx context.Context, eventBus EventBusInterface, subs
 	email := fmt.Sprintf("user%d@example.com", emailId)
 
 	e := &SubscriberSubscribed{
-		Metadata:     s.Metadata,
-		SubscriberId: s.SubscriberId,
-		Email:        email,
+		AdditionalData: s.Metadata,
+		SubscriberId:   s.SubscriberId,
+		Email:          email,
 	}
 
 	return eventBus.Publish(ctx, e)
