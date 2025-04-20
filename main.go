@@ -230,15 +230,18 @@ func main() {
 		panic(err)
 	}
 
-	subscriberProjection := NewSubscriberProjection(db, slogLogger)
+	commonProjection := NewCommonProjection(db, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
 		"CommonProjection",
-		cqrs.NewGroupEventHandler(subscriberProjection.OnChatCreated),
-		cqrs.NewGroupEventHandler(subscriberProjection.OnParticipantAdded),
-		cqrs.NewGroupEventHandler(subscriberProjection.OnChatPinned),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
+		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),
+		cqrs.NewGroupEventHandler(commonProjection.OnMessageCreated),
+		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageIncreased),
+		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageReaded),
 	)
 	if err != nil {
 		panic(err)
@@ -253,6 +256,9 @@ func main() {
 		cqrs.NewGroupEventHandler(userChatProjection.OnChatCreated),
 		cqrs.NewGroupEventHandler(userChatProjection.OnParticipantAdded),
 		cqrs.NewGroupEventHandler(userChatProjection.OnChatPinned),
+		cqrs.NewGroupEventHandler(userChatProjection.OnMessageCreated),
+		cqrs.NewGroupEventHandler(userChatProjection.OnUnreadMessageIncreased),
+		cqrs.NewGroupEventHandler(userChatProjection.OnUnreadMessageReaded),
 	)
 	if err != nil {
 		panic(err)
@@ -268,7 +274,7 @@ func main() {
 	ginRouter.Use(WriteTraceToHeaderMiddleware())
 	ginRouter.Use(gin.Recovery())
 
-	makeHttpHandlers(ginRouter, slogLogger, &eventBus, subscriberProjection, userChatProjection)
+	makeHttpHandlers(ginRouter, slogLogger, &eventBus, commonProjection, userChatProjection)
 
 	httpServer := &http.Server{
 		Addr:           ":8080",
@@ -319,6 +325,14 @@ type ChatCreateDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
+type MessageCreateDto struct {
+	Content string `json:"content"`
+}
+
+type ParticipantAddDto struct {
+	ParticipantIds []int64 `json:"participantIds"`
+}
+
 func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, commonProjection *CommonProjection, userChatProjection *UserChatProjection) {
 	ginRouter.POST("/chat", func(g *gin.Context) {
 
@@ -362,6 +376,41 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 		g.JSON(http.StatusOK, m)
 	})
 
+	ginRouter.PUT("/chat/:id/participant", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		ccd := new(ParticipantAddDto)
+
+		err = g.Bind(ccd)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding ParticipantAddDto", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := ParticipantAdd{
+			AdditionalData: GenerateMessageAdditionalData(),
+			ParticipantIds: ccd.ParticipantIds,
+			ChatId:         chatId,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatCreate command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
 	ginRouter.PUT("/chat/:id/pin", func(g *gin.Context) {
 		cid := g.Param("id")
 
@@ -392,16 +441,102 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 
 		err = cc.Handle(g.Request.Context(), eventBus)
 		if err != nil {
-			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatCreate command", "err", err)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatPin command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
+	ginRouter.POST("/chat/:id/message", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		userId, err := getUserId(g)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error parsing UserId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		mcd := new(MessageCreateDto)
+
+		err = g.Bind(mcd)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding MessageCreateDto", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := MessagePost{
+			AdditionalData: GenerateMessageAdditionalData(),
+			ChatId:         chatId,
+			Content:        mcd.Content,
+			OwnerId:        userId,
+		}
+
+		mid, err := cc.Handle(g.Request.Context(), eventBus, commonProjection)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessagePost command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
 
 		m := map[string]any{
-			"id": chatId,
+			"id": mid,
 		}
 
 		g.JSON(http.StatusOK, m)
+	})
+
+	ginRouter.PUT("/chat/:id/message/:messageId/read", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		mid := g.Param("messageId")
+
+		messageId, err := ParseInt64(mid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding messageId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		userId, err := getUserId(g)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error parsing UserId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		mr := MessageRead{
+			AdditionalData: GenerateMessageAdditionalData(),
+			ChatId:         chatId,
+			MessageId:      messageId,
+			ParticipantId:  userId,
+		}
+
+		err = mr.Handle(g.Request.Context(), eventBus)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageRead command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
 	})
 
 	ginRouter.GET("/chat/search", func(g *gin.Context) {
@@ -419,6 +554,25 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			return
 		}
 		g.JSON(http.StatusOK, chats)
+	})
+
+	ginRouter.GET("/chat/:id/message/search", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		messages, err := commonProjection.GetMessages(g.Request.Context(), chatId)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error getting messages", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+		g.JSON(http.StatusOK, messages)
 	})
 }
 

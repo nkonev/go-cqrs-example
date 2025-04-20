@@ -27,24 +27,23 @@ curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
 # pin chat
 curl -i -X PUT -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/pin?pin=true'
 
-# clear projections
-docker compose exec -it postgresql psql -U postgres -c 'truncate subscriber; truncate activity_timeline;'
+# create a message
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message"}'
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 2"}'
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 3"}'
 
-# now there are zeroes
-curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
-curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+# see messages
+curl -Ss -X GET --url 'http://localhost:8080/chat/1/message/search' | jq
 
-# stop app
+# read message
+curl -i -X PUT -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/2/read'
+
+# add participant into chat
+curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [2, 3]}'
 
 # reset offsets for consumer groups
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group SubscriberProjection --reset-offsets --to-earliest --execute --topic events
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ActivityTimelineProjection --reset-offsets --to-earliest --execute --topic events
-
-# start app again
-go run .
-# and it will restore tables from the zeroth offset, see
-curl -Ss -X GET --url 'http://localhost:8080/subscribers' | jq
-curl -Ss -X GET --url 'http://localhost:8080/activities' | jq
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ChatUserProjection --reset-offsets --to-earliest --execute --topic events
 ```
 
 # Tracing
@@ -58,13 +57,11 @@ docker compose logs -f postgresql
 
 # see projections
 docker compose exec -it postgresql psql -U postgres
-select * from subscriber order by created_timestamp;
-select * from activity_timeline order by created_timestamp;
 
 docker compose exec -it kafka bash
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group SubscriberProjection --offsets
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group ActivityTimelineProjection --offsets
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group CommonProjection --offsets
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group ChatUserProjection --offsets
 
 # see kafka topic
 docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic events --from-beginning --property print.key=true --property print.headers=true
