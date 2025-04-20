@@ -160,9 +160,9 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
 	r, err := m.db.ExecContext(ctx, `
 		UPDATE unread_messages_user_view 
-		SET unread_messages = unread_messages + 1
+		SET unread_messages = unread_messages + $3
 		WHERE user_id = $1 AND chat_id = $2;
-	`, event.ParticipantId, event.ChatId)
+	`, event.ParticipantId, event.ChatId, event.IncreaseOn)
 	if err != nil {
 		return fmt.Errorf("error during increasing unread messages: %w", err)
 	}
