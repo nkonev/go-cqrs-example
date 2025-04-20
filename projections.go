@@ -171,6 +171,10 @@ func (m *UserChatProjection) OnChatCreated(ctx context.Context, event *ChatCreat
 }
 
 func (m *UserChatProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
+	// TODO here we select chat_common which is updated from the different consumer group
+	//  it can lead to the race condition
+	//  either use the same consumer group (move this insert there)
+	//  or get rid of 2 consumer groups
 	_, err := m.db.ExecContext(ctx, `
 		insert into chat_user_view(id, title, pinned, participant_id, created_timestamp, updated_timestamp) 
 			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
