@@ -33,7 +33,7 @@ import (
 	"time"
 )
 
-const TRACE_RESOURCE = "go-cqrs-example"
+const TRACE_RESOURCE = "chat-cqrs-example"
 const LogFieldTraceId = "trace_id"
 
 // TODO think about sequence restoration - introduce an new event
@@ -104,7 +104,7 @@ func main() {
 	kafkaProducerConfig.Producer.Return.Successes = true
 	kafkaProducerConfig.Version = sarama.V4_0_0_0
 	kafkaProducerConfig.Metadata.Retry.Backoff = time.Second * 2
-	kafkaProducerConfig.ClientID = "go-cqrs-producer"
+	kafkaProducerConfig.ClientID = "chat-producer"
 
 	traceExporterConn, err := grpc.DialContext(context.Background(), "localhost:4317", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	if err != nil {
@@ -181,7 +181,7 @@ func main() {
 	kafkaConsumerConfig := sarama.NewConfig()
 	kafkaConsumerConfig.Consumer.Return.Errors = true
 	kafkaConsumerConfig.Version = sarama.V4_0_0_0
-	kafkaConsumerConfig.ClientID = "go-cqrs-consumer"
+	kafkaConsumerConfig.ClientID = "chat-consumer"
 
 	eventProcessor, err := cqrs.NewEventGroupProcessorWithConfig(
 		cqrsRouter,
