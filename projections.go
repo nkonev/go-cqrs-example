@@ -19,6 +19,9 @@ func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger) *CommonProjection 
 	}
 }
 
+// we offload heavy computations of unread messages to this particular
+// consumer group
+// in general we should care about race condition
 type UserChatProjection struct {
 	db         *sql.DB
 	slogLogger *slog.Logger
@@ -78,6 +81,18 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 	if err != nil {
 		return err
 	}
+
+	// we do it here because it can be race condition in the other consumer group
+	// because we select chat_common, inserted from this consumer group in ChatCreated handler
+	_, err = m.db.ExecContext(ctx, `
+		insert into chat_user_view(id, title, pinned, participant_id, created_timestamp, updated_timestamp) 
+			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
+		on conflict(participant_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
+	`, event.ChatId, event.ParticipantId)
+	if err != nil {
+		return err
+	}
+
 	LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant added into common chat",
 		"user_id", event.ParticipantId,
@@ -171,23 +186,10 @@ func (m *UserChatProjection) OnChatCreated(ctx context.Context, event *ChatCreat
 }
 
 func (m *UserChatProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
-	// TODO here we select chat_common which is updated from the different consumer group
-	//  it can lead to the race condition
-	//  either use the same consumer group (move this insert there)
-	//  or get rid of 2 consumer groups
-	_, err := m.db.ExecContext(ctx, `
-		insert into chat_user_view(id, title, pinned, participant_id, created_timestamp, updated_timestamp) 
-			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
-		on conflict(participant_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
-	`, event.ChatId, event.ParticipantId)
-	if err != nil {
-		return err
-	}
-
 	// recalc in case an user was added after
 	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
 	// we don't care about a race condition here because typically adding a participant are distant from message creating
-	_, err = m.db.ExecContext(ctx, `
+	_, err := m.db.ExecContext(ctx, `
 		with normalized_last_message as (
 		    select coalesce(
 				(select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2),
