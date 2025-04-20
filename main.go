@@ -247,23 +247,6 @@ func main() {
 		panic(err)
 	}
 
-	userChatProjection := NewUserChatProjection(db, slogLogger)
-
-	// All messages from this group will have one subscription.
-	// When message arrives, Watermill will match it with the correct handler.
-	err = eventProcessor.AddHandlersGroup(
-		"ChatUserProjection",
-		cqrs.NewGroupEventHandler(userChatProjection.OnChatCreated),
-		cqrs.NewGroupEventHandler(userChatProjection.OnParticipantAdded),
-		cqrs.NewGroupEventHandler(userChatProjection.OnChatPinned),
-		cqrs.NewGroupEventHandler(userChatProjection.OnMessageCreated),
-		cqrs.NewGroupEventHandler(userChatProjection.OnUnreadMessageIncreased),
-		cqrs.NewGroupEventHandler(userChatProjection.OnUnreadMessageReaded),
-	)
-	if err != nil {
-		panic(err)
-	}
-
 	slogLogger.Info("Starting service")
 
 	// https://gin-gonic.com/en/docs/examples/graceful-restart-or-stop/
@@ -274,7 +257,7 @@ func main() {
 	ginRouter.Use(WriteTraceToHeaderMiddleware())
 	ginRouter.Use(gin.Recovery())
 
-	makeHttpHandlers(ginRouter, slogLogger, &eventBus, commonProjection, userChatProjection)
+	makeHttpHandlers(ginRouter, slogLogger, &eventBus, commonProjection)
 
 	httpServer := &http.Server{
 		Addr:           ":8080",
@@ -333,7 +316,7 @@ type ParticipantAddDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
-func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, commonProjection *CommonProjection, userChatProjection *UserChatProjection) {
+func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, commonProjection *CommonProjection) {
 	ginRouter.POST("/chat", func(g *gin.Context) {
 
 		ccd := new(ChatCreateDto)
@@ -547,7 +530,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			return
 		}
 
-		chats, err := userChatProjection.GetChats(g.Request.Context(), userId)
+		chats, err := commonProjection.GetChats(g.Request.Context(), userId)
 		if err != nil {
 			LogWithTrace(g.Request.Context(), slogLogger).Error("Error getting chats", "err", err)
 			g.Status(http.StatusInternalServerError)

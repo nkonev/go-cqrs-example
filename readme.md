@@ -43,7 +43,6 @@ curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/
 
 # reset offsets for consumer groups
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group ChatUserProjection --reset-offsets --to-earliest --execute --topic events
 ```
 
 # Tracing
@@ -61,7 +60,6 @@ docker compose exec -it postgresql psql -U postgres
 docker compose exec -it kafka bash
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group CommonProjection --offsets
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group ChatUserProjection --offsets
 
 # see kafka topic
 docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic events --from-beginning --property print.key=true --property print.headers=true

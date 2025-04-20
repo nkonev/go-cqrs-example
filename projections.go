@@ -19,21 +19,6 @@ func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger) *CommonProjection 
 	}
 }
 
-// we offload heavy computations of unread messages to this particular
-// consumer group
-// in general we should care about race condition
-type UserChatProjection struct {
-	db         *sql.DB
-	slogLogger *slog.Logger
-}
-
-func NewUserChatProjection(db *sql.DB, slogLogger *slog.Logger) *UserChatProjection {
-	return &UserChatProjection{
-		db:         db,
-		slogLogger: slogLogger,
-	}
-}
-
 func (m *CommonProjection) GetNextChatId(ctx context.Context) (int64, error) {
 	r := m.db.QueryRowContext(ctx, "select nextval('chat_id_sequence')")
 	if r.Err() != nil {
@@ -73,6 +58,27 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
+func initializeMessageUnread(ctx context.Context, db *sql.DB, participantId, chatId int64) error {
+	_, err := db.ExecContext(ctx, `
+		with normalized_last_message as (
+		    select coalesce(
+				(select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2),
+		        0
+		    ) as normalized_last_message_id
+		)
+		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
+		select 
+		    $1, 
+		    $2,
+		    (SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message))
+			FROM message m
+			WHERE m.chat_id = $2),
+		    (SELECT normalized_last_message_id FROM normalized_last_message)
+		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
+	`, participantId, chatId)
+	return err
+}
+
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
 	_, err := m.db.ExecContext(ctx, `
 		insert into chat_participant(user_id, chat_id) values ($1, $2)
@@ -82,7 +88,6 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		return err
 	}
 
-	// we do it here because it can be race condition in the other consumer group
 	// because we select chat_common, inserted from this consumer group in ChatCreated handler
 	_, err = m.db.ExecContext(ctx, `
 		insert into chat_user_view(id, title, pinned, participant_id, created_timestamp, updated_timestamp) 
@@ -92,6 +97,19 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 	if err != nil {
 		return err
 	}
+
+	// recalc in case an user was added after
+	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
+	err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+	if err != nil {
+		return err
+	}
+
+	LogWithTrace(ctx, m.slogLogger).Info(
+		"Handling participant added for per user chat view",
+		"user_id", event.ParticipantId,
+		"chat_id", event.ChatId,
+	)
 
 	LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant added into common chat",
@@ -103,6 +121,20 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 }
 
 func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
+	_, err := m.db.ExecContext(ctx, `
+		update chat_user_view
+		set pinned = $3
+		where id = $1 and participant_id = $2
+	`, event.ChatId, event.ParticipantId, event.Pinned)
+	if err != nil {
+		return err
+	}
+	LogWithTrace(ctx, m.slogLogger).Info(
+		"Chat pinned",
+		"user_id", event.ParticipantId,
+		"chat_id", event.ChatId,
+		"pinned", event.Pinned,
+	)
 	return nil
 }
 
@@ -126,10 +158,54 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 }
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
+	r, err := m.db.ExecContext(ctx, `
+		UPDATE unread_messages_user_view 
+		SET unread_messages = unread_messages + 1
+		WHERE user_id = $1 AND chat_id = $2;
+	`, event.ParticipantId, event.ChatId)
+	if err != nil {
+		return fmt.Errorf("error during increasing unread messages: %w", err)
+	}
+
+	affected, err := r.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error during increasing unread messages: %w", err)
+	}
+
+	if affected == 0 {
+		err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
+	// actually it should be an update
+	// but we give a chance to create a row unread_messages_user_view in case lack of it
+	// so message read event has a self-healing effect
+	_, err := m.db.ExecContext(ctx, `
+		with normalized_given_message as (
+		    select coalesce(
+		    	(select id from message where chat_id = $2 and id = $3),
+				(select max(id) from message where chat_id = $2)
+		    ) as normalized_message_id
+		)
+		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
+		select 
+		    $1, 
+		    $2,
+		    (SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
+			FROM message m
+			WHERE m.chat_id = $2),
+		    (select normalized_message_id from normalized_given_message)
+		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
+	`, event.ParticipantId, event.ChatId, event.MessageId)
+	if err != nil {
+		return fmt.Errorf("error during read messages: %w", err)
+	}
 	return nil
 }
 
@@ -181,108 +257,6 @@ func (m *CommonProjection) GetMessages(ctx context.Context, chatId int64) ([]Mes
 	return ma, nil
 }
 
-func (m *UserChatProjection) OnChatCreated(ctx context.Context, event *ChatCreated) error {
-	return nil
-}
-
-func (m *UserChatProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
-	// recalc in case an user was added after
-	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
-	// we don't care about a race condition here because typically adding a participant are distant from message creating
-	_, err := m.db.ExecContext(ctx, `
-		with normalized_last_message as (
-		    select coalesce(
-				(select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2),
-		        0
-		    ) as normalized_last_message_id
-		)
-		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
-		select 
-		    $1, 
-		    $2,
-		    (SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message))
-			FROM message m
-			WHERE m.chat_id = $2),
-		    (SELECT normalized_last_message_id FROM normalized_last_message)
-		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, event.ParticipantId, event.ChatId)
-	if err != nil {
-		return err
-	}
-
-	LogWithTrace(ctx, m.slogLogger).Info(
-		"Handling participant added for per user chat view",
-		"user_id", event.ParticipantId,
-		"chat_id", event.ChatId,
-	)
-
-	return nil
-}
-
-func (m *UserChatProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
-	_, err := m.db.ExecContext(ctx, `
-		update chat_user_view
-		set pinned = $3
-		where id = $1 and participant_id = $2
-	`, event.ChatId, event.ParticipantId, event.Pinned)
-	if err != nil {
-		return err
-	}
-	LogWithTrace(ctx, m.slogLogger).Info(
-		"Chat pinned",
-		"user_id", event.ParticipantId,
-		"chat_id", event.ChatId,
-		"pinned", event.Pinned,
-	)
-	return nil
-}
-
-func (m *UserChatProjection) OnMessageCreated(ctx context.Context, event *MessageCreated) error {
-	return nil
-}
-
-func (m *UserChatProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
-	_, err := m.db.ExecContext(ctx, `
-		UPDATE unread_messages_user_view 
-		SET unread_messages = unread_messages + 1
-		WHERE user_id = $1 AND chat_id = $2;
-	`, event.ParticipantId, event.ChatId)
-	if err != nil {
-		return fmt.Errorf("error during increasing unread messages: %w", err)
-	}
-
-	// in case 0 rows update we can't just "initialize messageUnread" due to race condition - this consumer group gets an event faster than a consumer group where a message is actually created
-
-	return nil
-}
-
-func (m *UserChatProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
-	// actually it should be an update
-	// but we give a chance to create a row unread_messages_user_view in case lack of it
-	// so message read event has a self-healing effect
-	_, err := m.db.ExecContext(ctx, `
-		with normalized_given_message as (
-		    select coalesce(
-		    	(select id from message where chat_id = $2 and id = $3),
-				(select max(id) from message where chat_id = $2)
-		    ) as normalized_message_id
-		)
-		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
-		select 
-		    $1, 
-		    $2,
-		    (SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
-			FROM message m
-			WHERE m.chat_id = $2),
-		    (select normalized_message_id from normalized_given_message)
-		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, event.ParticipantId, event.ChatId, event.MessageId)
-	if err != nil {
-		return fmt.Errorf("error during read messages: %w", err)
-	}
-	return nil
-}
-
 type ChatViewDto struct {
 	Id             int64  `json:"id"`
 	Title          string `json:"title"`
@@ -290,7 +264,7 @@ type ChatViewDto struct {
 	UnreadMessages int64  `json:"unreadMessages"`
 }
 
-func (m *UserChatProjection) GetChats(ctx context.Context, participantId int64) ([]ChatViewDto, error) {
+func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([]ChatViewDto, error) {
 	ma := []ChatViewDto{}
 
 	rows, err := m.db.QueryContext(ctx, `
