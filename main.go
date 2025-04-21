@@ -79,13 +79,14 @@ func main() {
 	}
 
 	// We are decorating ProtobufMarshaler to add extra metadata to the message.
-	cqrsMarshaler := cqrs.JSONMarshaler{
-		// It will generate topic names based on the event/command type.
-		// So for example, for "RoomBooked" name will be "RoomBooked".
-		GenerateName: cqrs.NamedStruct(func(v interface{}) string {
-			panic(fmt.Sprintf("not implemented Name() for %T", v))
-		}),
-	}
+	cqrsMarshaler := CqrsMarshalerDecorator{
+		cqrs.JSONMarshaler{
+			// It will generate topic names based on the event/command type.
+			// So for example, for "RoomBooked" name will be "RoomBooked".
+			GenerateName: cqrs.NamedStruct(func(v interface{}) string {
+				panic(fmt.Sprintf("not implemented Name() for %T", v))
+			}),
+		}}
 
 	watermillLogger := watermill.NewSlogLoggerWithLevelMapping(
 		slogLogger.With("watermill", true),

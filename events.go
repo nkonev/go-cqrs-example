@@ -4,6 +4,8 @@ import "time"
 
 type AdditionalData struct {
 	CreatedAt time.Time `json:"createdAt"`
+	Partition int32     `json:"-"` // set on receive
+	Offset    int64     `json:"-"` // set on receive
 }
 
 type ChatCreated struct {
@@ -75,6 +77,36 @@ func (s *UnreadMessageIncreased) GetPartitionKey() string {
 
 func (s *MessageReaded) GetPartitionKey() string {
 	return ToString(s.ChatId)
+}
+
+func (s *ChatCreated) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *ParticipantAdded) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *ChatPinned) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *MessageCreated) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *UnreadMessageIncreased) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *MessageReaded) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
 }
 
 func (s *ChatCreated) Name() string {

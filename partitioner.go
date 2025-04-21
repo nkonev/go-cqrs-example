@@ -20,6 +20,7 @@ type PartitionAwareEventBus struct {
 }
 
 func (w *PartitionAwareEventBus) Publish(ctx context.Context, pm PartitionableMessage) error {
+	// we put partition key into context in order tot to duplicate partition key, stored in kafka key into headers
 	return w.eventBus.Publish(makeContextWithPartitionKey(ctx, pm), pm)
 }
 
