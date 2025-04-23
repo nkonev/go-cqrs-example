@@ -36,6 +36,7 @@ import (
 const TRACE_RESOURCE = "chat-cqrs-example"
 const LogFieldTraceId = "trace_id"
 
+// TODO unhardcode - use viper
 // TODO think about sequence restoration - introduce an new event
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
