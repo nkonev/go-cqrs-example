@@ -76,7 +76,35 @@ func initializeMessageUnread(ctx context.Context, db *sql.DB, participantId, cha
 		    (SELECT normalized_last_message_id FROM normalized_last_message)
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
 	`, participantId, chatId)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func updateChatUserViewRevision(ctx context.Context, db *sql.DB, participantId int64, partition int32, offset int64) error {
+	_, err := db.ExecContext(ctx, `
+		insert into chat_user_view_revision(user_id, partition_id, offset_id) 
+			values ($1, $2, $3)
+		on conflict(user_id, partition_id) do update set offset_id = excluded.offset_id
+	`, participantId, partition, offset)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func updateUnreadMessagesUserViewRevision(ctx context.Context, db *sql.DB, participantId int64, partition int32, offset int64) error {
+	_, err := db.ExecContext(ctx, `
+		insert into unread_messages_user_view_revision(user_id, partition_id, offset_id) 
+			values ($1, $2, $3)
+		on conflict(user_id, partition_id) do update set offset_id = excluded.offset_id
+	`, participantId, partition, offset)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
@@ -90,10 +118,15 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 
 	// because we select chat_common, inserted from this consumer group in ChatCreated handler
 	_, err = m.db.ExecContext(ctx, `
-		insert into chat_user_view(id, title, pinned, participant_id, created_timestamp, updated_timestamp) 
+		insert into chat_user_view(id, title, pinned, user_id, created_timestamp, updated_timestamp) 
 			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
-		on conflict(participant_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
+		on conflict(user_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
 	`, event.ChatId, event.ParticipantId)
+	if err != nil {
+		return err
+	}
+
+	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
 	if err != nil {
 		return err
 	}
@@ -101,6 +134,11 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 	// recalc in case an user was added after
 	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
 	err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+	if err != nil {
+		return err
+	}
+
+	err = updateUnreadMessagesUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
 	if err != nil {
 		return err
 	}
@@ -124,11 +162,17 @@ func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) 
 	_, err := m.db.ExecContext(ctx, `
 		update chat_user_view
 		set pinned = $3
-		where id = $1 and participant_id = $2
+		where id = $1 and user_id = $2
 	`, event.ChatId, event.ParticipantId, event.Pinned)
 	if err != nil {
 		return err
 	}
+
+	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+	if err != nil {
+		return err
+	}
+
 	LogWithTrace(ctx, m.slogLogger).Info(
 		"Chat pinned",
 		"user_id", event.ParticipantId,
@@ -179,6 +223,11 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 		}
 	}
 
+	err = updateUnreadMessagesUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -206,6 +255,12 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	if err != nil {
 		return fmt.Errorf("error during read messages: %w", err)
 	}
+
+	err = updateUnreadMessagesUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -271,7 +326,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 		select ch.id, ch.title, ch.pinned, coalesce(m.unread_messages, 0)
 		from chat_user_view ch
 		left join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
-		where ch.participant_id = $1
+		where ch.user_id = $1
 		order by (ch.pinned, ch.updated_timestamp) desc
 	`, participantId)
 	if err != nil {

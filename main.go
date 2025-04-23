@@ -59,7 +59,7 @@ func main() {
 
 	retention := "-1"
 	err = kafkaAdmin.CreateTopic(topicName, &sarama.TopicDetail{
-		NumPartitions:     1,
+		NumPartitions:     3,
 		ReplicationFactor: 1,
 		ConfigEntries: map[string]*string{
 			// https://kafka.apache.org/documentation/#topicconfigs_retention.ms
