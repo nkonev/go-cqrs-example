@@ -228,6 +228,18 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 		return err
 	}
 
+	_, err = m.db.ExecContext(ctx, `
+		update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
+	`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
+	if err != nil {
+		return err
+	}
+
+	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -327,7 +339,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 		from chat_user_view ch
 		left join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
 		where ch.user_id = $1
-		order by (ch.pinned, ch.updated_timestamp) desc
+		order by ch.pinned asc, ch.updated_timestamp desc nulls last, ch.id desc 
 	`, participantId)
 	if err != nil {
 		return ma, err
