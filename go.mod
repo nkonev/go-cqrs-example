@@ -6,9 +6,8 @@ require (
 	github.com/ThreeDotsLabs/watermill-kafka/v3 v3.0.6
 	github.com/XSAM/otelsql v0.38.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v4 v4.15.0
-	github.com/nkonev/watermill-opentelemetry v0.1.9
+	github.com/nkonev/watermill-opentelemetry v0.1.10
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.60.0
 	go.opentelemetry.io/contrib/propagators/jaeger v1.35.0
 	go.opentelemetry.io/otel v1.35.0
@@ -39,6 +38,7 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
