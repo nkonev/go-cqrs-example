@@ -95,6 +95,10 @@ func updateChatUserViewRevision(ctx context.Context, db *sql.DB, participantId i
 	return nil
 }
 
+func (m *CommonProjection) userIsOnline(ctx context.Context, participantId int64) bool {
+	return true
+}
+
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
 	_, err := m.db.ExecContext(ctx, `
 		insert into chat_participant(user_id, chat_id) values ($1, $2)
@@ -104,26 +108,28 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		return err
 	}
 
-	// because we select chat_common, inserted from this consumer group in ChatCreated handler
-	_, err = m.db.ExecContext(ctx, `
+	if m.userIsOnline(ctx, event.ParticipantId) {
+		// because we select chat_common, inserted from this consumer group in ChatCreated handler
+		_, err = m.db.ExecContext(ctx, `
 		insert into chat_user_view(id, title, pinned, user_id, created_timestamp, updated_timestamp) 
 			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
 		on conflict(user_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
 	`, event.ChatId, event.ParticipantId)
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	// recalc in case an user was added after
-	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
-	err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
-	if err != nil {
-		return err
-	}
+		// recalc in case an user was added after
+		// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
+		err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+		if err != nil {
+			return err
+		}
 
-	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-	if err != nil {
-		return err
+		err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+		if err != nil {
+			return err
+		}
 	}
 
 	LogWithTrace(ctx, m.slogLogger).Info(
@@ -136,26 +142,28 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 }
 
 func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
-	_, err := m.db.ExecContext(ctx, `
+	if m.userIsOnline(ctx, event.ParticipantId) {
+		_, err := m.db.ExecContext(ctx, `
 		update chat_user_view
 		set pinned = $3
 		where id = $1 and user_id = $2
 	`, event.ChatId, event.ParticipantId, event.Pinned)
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-	if err != nil {
-		return err
-	}
+		err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+		if err != nil {
+			return err
+		}
 
-	LogWithTrace(ctx, m.slogLogger).Info(
-		"Chat pinned",
-		"user_id", event.ParticipantId,
-		"chat_id", event.ChatId,
-		"pinned", event.Pinned,
-	)
+		LogWithTrace(ctx, m.slogLogger).Info(
+			"Chat pinned",
+			"user_id", event.ParticipantId,
+			"chat_id", event.ChatId,
+			"pinned", event.Pinned,
+		)
+	}
 	return nil
 }
 
@@ -179,70 +187,74 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 }
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
-	r, err := m.db.ExecContext(ctx, `
+	if m.userIsOnline(ctx, event.ParticipantId) {
+		r, err := m.db.ExecContext(ctx, `
 		UPDATE unread_messages_user_view 
 		SET unread_messages = unread_messages + $3
 		WHERE user_id = $1 AND chat_id = $2;
 	`, event.ParticipantId, event.ChatId, event.IncreaseOn)
-	if err != nil {
-		return fmt.Errorf("error during increasing unread messages: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("error during increasing unread messages: %w", err)
+		}
 
-	affected, err := r.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("error during increasing unread messages: %w", err)
-	}
+		affected, err := r.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("error during increasing unread messages: %w", err)
+		}
 
-	if affected == 0 {
-		err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+		if affected == 0 {
+			err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+			if err != nil {
+				return err
+			}
+		}
+
+		_, err = m.db.ExecContext(ctx, `
+		update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
+	`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err
 		}
-	}
 
-	_, err = m.db.ExecContext(ctx, `
-		update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
-	`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
-	if err != nil {
-		return err
-	}
-
-	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-	if err != nil {
-		return err
+		err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
-	// actually it should be an update
-	// but we give a chance to create a row unread_messages_user_view in case lack of it
-	// so message read event has a self-healing effect
-	_, err := m.db.ExecContext(ctx, `
-		with normalized_given_message as (
-		    select coalesce(
-		    	(select id from message where chat_id = $2 and id = $3),
-				(select max(id) from message where chat_id = $2)
-		    ) as normalized_message_id
-		)
-		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
-		select 
-		    $1, 
-		    $2,
-		    (SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
-			FROM message m
-			WHERE m.chat_id = $2),
-		    (select normalized_message_id from normalized_given_message)
-		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, event.ParticipantId, event.ChatId, event.MessageId)
-	if err != nil {
-		return fmt.Errorf("error during read messages: %w", err)
-	}
+	if m.userIsOnline(ctx, event.ParticipantId) {
+		// actually it should be an update
+		// but we give a chance to create a row unread_messages_user_view in case lack of it
+		// so message read event has a self-healing effect
+		_, err := m.db.ExecContext(ctx, `
+			with normalized_given_message as (
+				select coalesce(
+					(select id from message where chat_id = $2 and id = $3),
+					(select max(id) from message where chat_id = $2)
+				) as normalized_message_id
+			)
+			insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
+			select 
+				$1, 
+				$2,
+				(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
+				FROM message m
+				WHERE m.chat_id = $2),
+				(select normalized_message_id from normalized_given_message)
+			on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
+		`, event.ParticipantId, event.ChatId, event.MessageId)
+		if err != nil {
+			return fmt.Errorf("error during read messages: %w", err)
+		}
 
-	err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-	if err != nil {
-		return err
+		err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
