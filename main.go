@@ -41,10 +41,55 @@ const LogFieldTraceId = "trace_id"
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
+	consumerGroupName := "CommonProjection"
 
 	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
+
+	traceExporterConn, err := grpc.DialContext(context.Background(), "localhost:4317", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	if err != nil {
+		panic(err)
+	}
+
+	exporter, err := otlptracegrpc.New(context.Background(), otlptracegrpc.WithGRPCConn(traceExporterConn))
+	if err != nil {
+		panic(err)
+	}
+	resources := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceNameKey.String(TRACE_RESOURCE),
+	)
+	batchSpanProcessor := sdktrace.NewBatchSpanProcessor(exporter)
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(batchSpanProcessor),
+		sdktrace.WithResource(resources),
+	)
+	otel.SetTracerProvider(tp)
+	aJaegerPropagator := jaegerPropagator.Jaeger{}
+	// register jaeger propagator
+	otel.SetTextMapPropagator(aJaegerPropagator)
+
+	db, err := otelsql.Open("pgx", "postgres://postgres:postgresqlPassword@localhost:5432/postgres?sslmode=disable&application_name=cqrs-app", otelsql.WithAttributes(
+		semconv.DBSystemPostgreSQL,
+	))
+	if err != nil {
+		panic(err)
+	}
+	err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
+		semconv.DBSystemPostgreSQL,
+	))
+	if err != nil {
+		panic(err)
+	}
+	db.SetConnMaxLifetime(time.Second * 30)
+	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(16)
+	err = db.Ping()
+	if err != nil {
+		panic(err)
+	}
 
 	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
@@ -74,6 +119,23 @@ func main() {
 	} else {
 		slogLogger.Info("Topic was successfully created", "topic", topicName)
 	}
+
+	offsets, err := kafkaAdmin.ListConsumerGroupOffsets(consumerGroupName, map[string][]int32{topicName: []int32{0, 1, 2}})
+	if err != nil {
+		panic(err)
+	}
+	offss := offsets.Blocks[topicName]
+	for p, o := range offss {
+		slogLogger.Info("Got", "partition", p, "offset", o.Offset)
+		_, dbErr := db.ExecContext(context.Background(), `
+			insert into common_offset(partition_id, offset_id) values ($1, $2)
+			on conflict (partition_id) do nothing
+		`, p, o.Offset)
+		if dbErr != nil {
+			panic(dbErr)
+		}
+	}
+
 	err = kafkaAdmin.Close()
 	if err != nil {
 		slogLogger.Error("Error during closing kafka admin", "err", err)
@@ -108,30 +170,6 @@ func main() {
 	kafkaProducerConfig.Metadata.Retry.Backoff = time.Second * 2
 	kafkaProducerConfig.ClientID = "chat-producer"
 
-	traceExporterConn, err := grpc.DialContext(context.Background(), "localhost:4317", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
-	if err != nil {
-		panic(err)
-	}
-
-	exporter, err := otlptracegrpc.New(context.Background(), otlptracegrpc.WithGRPCConn(traceExporterConn))
-	if err != nil {
-		panic(err)
-	}
-	resources := resource.NewWithAttributes(
-		semconv.SchemaURL,
-		semconv.ServiceNameKey.String(TRACE_RESOURCE),
-	)
-	batchSpanProcessor := sdktrace.NewBatchSpanProcessor(exporter)
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithSpanProcessor(batchSpanProcessor),
-		sdktrace.WithResource(resources),
-	)
-	otel.SetTracerProvider(tp)
-	aJaegerPropagator := jaegerPropagator.Jaeger{}
-	// register jaeger propagator
-	otel.SetTextMapPropagator(aJaegerPropagator)
-
 	publisher, err := kafka.NewPublisher(
 		kafka.PublisherConfig{
 			Brokers:               kafkaBootstrapServers,
@@ -162,7 +200,31 @@ func main() {
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
-			return h(msg)
+
+			partition, ok := kafka.MessagePartitionFromCtx(msg.Context())
+			if !ok {
+				return nil, errors.New("Unable to get partition")
+			}
+
+			offset, ok := kafka.MessagePartitionOffsetFromCtx(msg.Context())
+			if !ok {
+				return nil, errors.New("Unable to get offset")
+			}
+
+			messages, hErr := h(msg)
+			if hErr != nil {
+				return nil, hErr
+			}
+
+			_, dbErr := db.ExecContext(msg.Context(), `
+				insert into common_offset (partition_id, offset_id) values ($1, $2)
+				on conflict (partition_id) do update set offset_id = excluded.offset_id
+			`, partition, offset)
+			if dbErr != nil {
+				return nil, dbErr
+			}
+
+			return messages, nil
 		}
 	})
 
@@ -212,32 +274,12 @@ func main() {
 		panic(err)
 	}
 
-	db, err := otelsql.Open("pgx", "postgres://postgres:postgresqlPassword@localhost:5432/postgres?sslmode=disable&application_name=cqrs-app", otelsql.WithAttributes(
-		semconv.DBSystemPostgreSQL,
-	))
-	if err != nil {
-		panic(err)
-	}
-	err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
-		semconv.DBSystemPostgreSQL,
-	))
-	if err != nil {
-		panic(err)
-	}
-	db.SetConnMaxLifetime(time.Second * 30)
-	db.SetMaxIdleConns(2)
-	db.SetMaxOpenConns(16)
-	err = db.Ping()
-	if err != nil {
-		panic(err)
-	}
-
 	commonProjection := NewCommonProjection(db, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
 	err = eventProcessor.AddHandlersGroup(
-		"CommonProjection",
+		consumerGroupName,
 		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
 		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),

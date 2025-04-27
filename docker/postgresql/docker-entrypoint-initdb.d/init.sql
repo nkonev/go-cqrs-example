@@ -48,17 +48,16 @@ create table unread_messages_user_view(
 );
 
 -- partition by user_id
-create table chat_user_view_revision(
+create table user_offset(
     user_id bigint not null,
     partition_id int not null,
     offset_id bigint not null,
     primary key(user_id, partition_id)
 );
 
--- partition by user_id
-create table unread_messages_user_view_revision(
-    user_id bigint not null,
+-- partition by chat_id
+create table common_offset(
     partition_id int not null,
     offset_id bigint not null,
-    primary key(user_id, partition_id)
+    primary key(partition_id)
 );
