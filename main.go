@@ -93,6 +93,8 @@ func main() {
 		panic(err)
 	}
 
+	restClient := NewRestClient(slogLogger, "http://localhost:8060", "/internal/user/online")
+
 	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
 	})
@@ -276,7 +278,7 @@ func main() {
 		panic(err)
 	}
 
-	commonProjection := NewCommonProjection(db, slogLogger)
+	commonProjection := NewCommonProjection(db, slogLogger, restClient)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.

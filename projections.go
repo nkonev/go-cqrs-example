@@ -10,12 +10,14 @@ import (
 type CommonProjection struct {
 	db         *sql.DB
 	slogLogger *slog.Logger
+	restClient *RestClient
 }
 
-func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger) *CommonProjection {
+func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger, restClient *RestClient) *CommonProjection {
 	return &CommonProjection{
 		db:         db,
 		slogLogger: slogLogger,
+		restClient: restClient,
 	}
 }
 
@@ -96,7 +98,15 @@ func updateChatUserViewRevision(ctx context.Context, db *sql.DB, participantId i
 }
 
 func (m *CommonProjection) userIsOnline(ctx context.Context, participantId int64) bool {
-	return true
+	online, err := m.restClient.IsOnline(ctx, participantId)
+	if err != nil {
+		m.slogLogger.Error("Error during get online", "user_id", participantId)
+		return false
+	}
+
+	m.slogLogger.Info("Is online", "online", online, "user_id", participantId)
+
+	return online
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
