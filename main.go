@@ -93,8 +93,6 @@ func main() {
 		panic(err)
 	}
 
-	restClient := NewRestClient(slogLogger, "http://localhost:8060", "/internal/user/online")
-
 	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
 	})
@@ -131,13 +129,6 @@ func main() {
 	offss := offsets.Blocks[topicName]
 	for p, o := range offss {
 		slogLogger.Info("Got", "partition", p, "offset", o.Offset)
-		_, dbErr := db.ExecContext(context.Background(), `
-			insert into common_offset(partition_id, offset_id) values ($1, $2)
-			on conflict (partition_id) do nothing
-		`, p, o.Offset)
-		if dbErr != nil {
-			panic(dbErr)
-		}
 	}
 
 	err = kafkaAdmin.Close()
@@ -204,31 +195,7 @@ func main() {
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
-
-			partition, ok := kafka.MessagePartitionFromCtx(msg.Context())
-			if !ok {
-				return nil, errors.New("Unable to get partition")
-			}
-
-			offset, ok := kafka.MessagePartitionOffsetFromCtx(msg.Context())
-			if !ok {
-				return nil, errors.New("Unable to get offset")
-			}
-
-			messages, hErr := h(msg)
-			if hErr != nil {
-				return nil, hErr
-			}
-
-			_, dbErr := db.ExecContext(msg.Context(), `
-				insert into common_offset (partition_id, offset_id) values ($1, $2)
-				on conflict (partition_id) do update set offset_id = excluded.offset_id
-			`, partition, offset)
-			if dbErr != nil {
-				return nil, dbErr
-			}
-
-			return messages, nil
+			return h(msg)
 		}
 	})
 
@@ -278,7 +245,7 @@ func main() {
 		panic(err)
 	}
 
-	commonProjection := NewCommonProjection(db, slogLogger, restClient)
+	commonProjection := NewCommonProjection(db, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.

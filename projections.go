@@ -10,14 +10,12 @@ import (
 type CommonProjection struct {
 	db         *sql.DB
 	slogLogger *slog.Logger
-	restClient *RestClient
 }
 
-func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger, restClient *RestClient) *CommonProjection {
+func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger) *CommonProjection {
 	return &CommonProjection{
 		db:         db,
 		slogLogger: slogLogger,
-		restClient: restClient,
 	}
 }
 
@@ -85,58 +83,6 @@ func initializeMessageUnread(ctx context.Context, db *sql.DB, participantId, cha
 	return nil
 }
 
-func updateChatUserViewRevision(ctx context.Context, db *sql.DB, participantId int64, partition int32, offset int64) error {
-	_, err := db.ExecContext(ctx, `
-		insert into user_offset(user_id, partition_id, offset_id) 
-			values ($1, $2, $3)
-		on conflict(user_id, partition_id) do update set offset_id = excluded.offset_id
-	`, participantId, partition, offset)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *CommonProjection) userIsOnline(ctx context.Context, participantId int64) (bool, error) {
-	online, err := m.restClient.IsOnline(ctx, participantId)
-	if err != nil {
-		m.slogLogger.Error("Error during get online", "user_id", participantId)
-		return false, err
-	}
-
-	m.slogLogger.Info("Is online", "online", online, "user_id", participantId)
-
-	return online, nil
-}
-
-func (m *CommonProjection) isPartitionStale(ctx context.Context, userId int64, partition int32, offset int64) (bool, error) {
-	rows, err := m.db.QueryContext(ctx, "select partition_id, offset_id from user_offset where user_id = $1", userId)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	data := map[int32]int64{}
-
-	for rows.Next() {
-		var p int32
-		var o int64
-		err = rows.Scan(&p, &o)
-		if err != nil {
-			return false, err
-		}
-		data[p] = o
-	}
-
-	gotOffset := data[partition]
-
-	if offset-gotOffset > 1 {
-		return false, nil
-	} else {
-		return true, err
-	}
-}
-
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
 	_, err := m.db.ExecContext(ctx, `
 		insert into chat_participant(user_id, chat_id) values ($1, $2)
@@ -146,44 +92,21 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		return err
 	}
 
-	online, err := m.userIsOnline(ctx, event.ParticipantId)
-	if err != nil {
-		return err
-	}
-
-	if online {
-		stale, err := m.isPartitionStale(ctx, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-		if err != nil {
-			return err
-		}
-
-		if !stale {
-			// because we select chat_common, inserted from this consumer group in ChatCreated handler
-			_, err = m.db.ExecContext(ctx, `
+	// because we select chat_common, inserted from this consumer group in ChatCreated handler
+	_, err = m.db.ExecContext(ctx, `
 		insert into chat_user_view(id, title, pinned, user_id, created_timestamp, updated_timestamp) 
 			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
 		on conflict(user_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
 	`, event.ChatId, event.ParticipantId)
-			if err != nil {
-				return err
-			}
+	if err != nil {
+		return err
+	}
 
-			// recalc in case an user was added after
-			// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
-			err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
-			if err != nil {
-				return err
-			}
-
-			err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-			if err != nil {
-				return err
-			}
-		} else {
-			LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user local data is stale", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
-		}
-	} else {
-		LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user is not online", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
+	// recalc in case an user was added after
+	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
+	err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+	if err != nil {
+		return err
 	}
 
 	LogWithTrace(ctx, m.slogLogger).Info(
@@ -196,45 +119,22 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 }
 
 func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
-
-	online, err := m.userIsOnline(ctx, event.ParticipantId)
-	if err != nil {
-		return err
-	}
-
-	if online {
-		stale, err := m.isPartitionStale(ctx, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-		if err != nil {
-			return err
-		}
-
-		if !stale {
-			_, err := m.db.ExecContext(ctx, `
+	_, err := m.db.ExecContext(ctx, `
 		update chat_user_view
 		set pinned = $3
 		where id = $1 and user_id = $2
 	`, event.ChatId, event.ParticipantId, event.Pinned)
-			if err != nil {
-				return err
-			}
-
-			err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-			if err != nil {
-				return err
-			}
-
-			LogWithTrace(ctx, m.slogLogger).Info(
-				"Chat pinned",
-				"user_id", event.ParticipantId,
-				"chat_id", event.ChatId,
-				"pinned", event.Pinned,
-			)
-		} else {
-			LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user local data is stale", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
-		}
-	} else {
-		LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user is not online", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
+	if err != nil {
+		return err
 	}
+
+	LogWithTrace(ctx, m.slogLogger).Info(
+		"Chat pinned",
+		"user_id", event.ParticipantId,
+		"chat_id", event.ChatId,
+		"pinned", event.Pinned,
+	)
+
 	return nil
 }
 
@@ -258,107 +158,61 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 }
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
-	online, err := m.userIsOnline(ctx, event.ParticipantId)
+
+	r, err := m.db.ExecContext(ctx, `
+		UPDATE unread_messages_user_view 
+		SET unread_messages = unread_messages + $3
+		WHERE user_id = $1 AND chat_id = $2;
+	`, event.ParticipantId, event.ChatId, event.IncreaseOn)
 	if err != nil {
-		return err
+		return fmt.Errorf("error during increasing unread messages: %w", err)
 	}
 
-	if online {
-		stale, err := m.isPartitionStale(ctx, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
+	affected, err := r.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error during increasing unread messages: %w", err)
+	}
+
+	if affected == 0 {
+		err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
 		if err != nil {
 			return err
 		}
+	}
 
-		if !stale {
-			r, err := m.db.ExecContext(ctx, `
-			UPDATE unread_messages_user_view 
-			SET unread_messages = unread_messages + $3
-			WHERE user_id = $1 AND chat_id = $2;
-		`, event.ParticipantId, event.ChatId, event.IncreaseOn)
-			if err != nil {
-				return fmt.Errorf("error during increasing unread messages: %w", err)
-			}
-
-			affected, err := r.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("error during increasing unread messages: %w", err)
-			}
-
-			if affected == 0 {
-				err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
-				if err != nil {
-					return err
-				}
-			}
-
-			_, err = m.db.ExecContext(ctx, `
-				update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
-			`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
-			if err != nil {
-				return err
-			}
-
-			err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-			if err != nil {
-				return err
-			}
-
-		} else {
-			LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user local data is stale", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
-		}
-	} else {
-		LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user is not online", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
+	_, err = m.db.ExecContext(ctx, `
+			update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
+		`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
-	online, err := m.userIsOnline(ctx, event.ParticipantId)
+	// actually it should be an update
+	// but we give a chance to create a row unread_messages_user_view in case lack of it
+	// so message read event has a self-healing effect
+	_, err := m.db.ExecContext(ctx, `
+		with normalized_given_message as (
+			select coalesce(
+				(select id from message where chat_id = $2 and id = $3),
+				(select max(id) from message where chat_id = $2)
+			) as normalized_message_id
+		)
+		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
+		select 
+			$1, 
+			$2,
+			(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
+			FROM message m
+			WHERE m.chat_id = $2),
+			(select normalized_message_id from normalized_given_message)
+		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
+	`, event.ParticipantId, event.ChatId, event.MessageId)
 	if err != nil {
-		return err
-	}
-
-	if online {
-		stale, err := m.isPartitionStale(ctx, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-		if err != nil {
-			return err
-		}
-
-		if !stale {
-			// actually it should be an update
-			// but we give a chance to create a row unread_messages_user_view in case lack of it
-			// so message read event has a self-healing effect
-			_, err := m.db.ExecContext(ctx, `
-			with normalized_given_message as (
-				select coalesce(
-					(select id from message where chat_id = $2 and id = $3),
-					(select max(id) from message where chat_id = $2)
-				) as normalized_message_id
-			)
-			insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
-			select 
-				$1, 
-				$2,
-				(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
-				FROM message m
-				WHERE m.chat_id = $2),
-				(select normalized_message_id from normalized_given_message)
-			on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-		`, event.ParticipantId, event.ChatId, event.MessageId)
-			if err != nil {
-				return fmt.Errorf("error during read messages: %w", err)
-			}
-
-			err = updateChatUserViewRevision(ctx, m.db, event.ParticipantId, event.AdditionalData.Partition, event.AdditionalData.Offset)
-			if err != nil {
-				return err
-			}
-		} else {
-			LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user local data is stale", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
-		}
-	} else {
-		LogWithTrace(ctx, m.slogLogger).Info("Not applying event because for the user is not online", "user_id", event.ParticipantId, "partition_id", event.AdditionalData.Partition, "offset", event.AdditionalData.Offset)
+		return fmt.Errorf("error during read messages: %w", err)
 	}
 
 	return nil
