@@ -39,6 +39,8 @@ const LogFieldTraceId = "trace_id"
 // TODO unhardcode - use viper
 // TODO mark message as read for user who composed it
 // TODO prohibit unreading messages (add >= check)
+// TODO change chat
+// TODO delete chat
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
