@@ -38,16 +38,15 @@ type MessageRead struct {
 	ParticipantId  int64
 }
 
-func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) (int64, error) {
-	err := commonProjection.InitializeChatIdSequenceIfNeed(ctx)
-	if err != nil {
-		return 0, err
-	}
+func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
+	chatId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
+		err := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
 
-	chatId, err := commonProjection.GetNextChatId(ctx)
-	if err != nil {
-		return 0, err
-	}
+		return commonProjection.GetNextChatId(ctx, tx)
+	})
 
 	cc := &ChatCreated{
 		AdditionalData: s.AdditionalData,
@@ -110,16 +109,15 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 	return eventBus.Publish(ctx, cp)
 }
 
-func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) (int64, error) {
-	err := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, s.ChatId)
-	if err != nil {
-		return 0, err
-	}
+func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
+	messageId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
+		err := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, s.ChatId)
+		if err != nil {
+			return 0, err
+		}
 
-	messageId, err := commonProjection.GetNextMessageId(ctx, s.ChatId)
-	if err != nil {
-		return 0, err
-	}
+		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)
+	})
 
 	mc := &MessageCreated{
 		AdditionalData: s.AdditionalData,

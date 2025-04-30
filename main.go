@@ -92,6 +92,11 @@ func main() {
 		panic(err)
 	}
 
+	dbWrapper := &DB{
+		DB:  db,
+		lgr: slogLogger,
+	}
+
 	watermillLoggerAdapter := watermill.NewSlogLoggerWithLevelMapping(slogLogger, map[slog.Level]slog.Level{
 		slog.LevelInfo: slog.LevelDebug,
 	})
@@ -210,7 +215,7 @@ func main() {
 		panic(err)
 	}
 
-	eventBus := PartitionAwareEventBus{eventBusRoot}
+	eventBus := &PartitionAwareEventBus{eventBusRoot}
 
 	kafkaConsumerConfig := sarama.NewConfig()
 	kafkaConsumerConfig.Consumer.Return.Errors = true
@@ -244,7 +249,7 @@ func main() {
 		panic(err)
 	}
 
-	commonProjection := NewCommonProjection(db, slogLogger)
+	commonProjection := NewCommonProjection(dbWrapper, slogLogger)
 
 	// All messages from this group will have one subscription.
 	// When message arrives, Watermill will match it with the correct handler.
@@ -271,7 +276,7 @@ func main() {
 	ginRouter.Use(WriteTraceToHeaderMiddleware())
 	ginRouter.Use(gin.Recovery())
 
-	makeHttpHandlers(ginRouter, slogLogger, &eventBus, commonProjection)
+	makeHttpHandlers(ginRouter, slogLogger, eventBus, dbWrapper, commonProjection)
 
 	httpServer := &http.Server{
 		Addr:           ":8080",
@@ -330,7 +335,7 @@ type ParticipantAddDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
-func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, commonProjection *CommonProjection) {
+func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, dbWrapper *DB, commonProjection *CommonProjection) {
 	ginRouter.POST("/chat", func(g *gin.Context) {
 
 		ccd := new(ChatCreateDto)
@@ -359,7 +364,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			cc.ParticipantIds = append(cc.ParticipantIds, userId)
 		}
 
-		chatId, err := cc.Handle(g.Request.Context(), eventBus, commonProjection)
+		chatId, err := cc.Handle(g.Request.Context(), eventBus, dbWrapper, commonProjection)
 		if err != nil {
 			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatCreate command", "err", err)
 			g.Status(http.StatusInternalServerError)
@@ -479,7 +484,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			OwnerId:        userId,
 		}
 
-		mid, err := cc.Handle(g.Request.Context(), eventBus, commonProjection)
+		mid, err := cc.Handle(g.Request.Context(), eventBus, dbWrapper, commonProjection)
 		if err != nil {
 			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessagePost command", "err", err)
 			g.Status(http.StatusInternalServerError)

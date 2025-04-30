@@ -2,25 +2,24 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 )
 
 type CommonProjection struct {
-	db         *sql.DB
+	db         *DB
 	slogLogger *slog.Logger
 }
 
-func NewCommonProjection(db *sql.DB, slogLogger *slog.Logger) *CommonProjection {
+func NewCommonProjection(db *DB, slogLogger *slog.Logger) *CommonProjection {
 	return &CommonProjection{
 		db:         db,
 		slogLogger: slogLogger,
 	}
 }
 
-func (m *CommonProjection) GetNextChatId(ctx context.Context) (int64, error) {
-	r := m.db.QueryRowContext(ctx, "select nextval('chat_id_sequence')")
+func (m *CommonProjection) GetNextChatId(ctx context.Context, tx *Tx) (int64, error) {
+	r := tx.QueryRowContext(ctx, "select nextval('chat_id_sequence')")
 	if r.Err() != nil {
 		return 0, r.Err()
 	}
@@ -32,8 +31,8 @@ func (m *CommonProjection) GetNextChatId(ctx context.Context) (int64, error) {
 	return nid, nil
 }
 
-func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context) error {
-	r := m.db.QueryRowContext(ctx, "SELECT is_called FROM chat_id_sequence")
+func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context, tx *Tx) error {
+	r := tx.QueryRowContext(ctx, "SELECT is_called FROM chat_id_sequence")
 	if r.Err() != nil {
 		return r.Err()
 	}
@@ -44,7 +43,7 @@ func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context) e
 	}
 
 	if !called {
-		r := m.db.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from chat_common")
+		r := tx.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from chat_common")
 		if r.Err() != nil {
 			return r.Err()
 		}
@@ -56,7 +55,7 @@ func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context) e
 
 		if maxChatId > 0 {
 			m.slogLogger.Info("Fast-forwarding chatId sequence")
-			_, err := m.db.ExecContext(ctx, "SELECT setval('chat_id_sequence', $1, true)", maxChatId)
+			_, err := tx.ExecContext(ctx, "SELECT setval('chat_id_sequence', $1, true)", maxChatId)
 			if err != nil {
 				return err
 			}
@@ -65,9 +64,9 @@ func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context) e
 	return nil
 }
 
-func (m *CommonProjection) GetNextMessageId(ctx context.Context, chatId int64) (int64, error) {
+func (m *CommonProjection) GetNextMessageId(ctx context.Context, tx *Tx, chatId int64) (int64, error) {
 	var messageId int64
-	res := m.db.QueryRowContext(ctx, "UPDATE chat_common SET last_generated_message_id = last_generated_message_id + 1 WHERE id = $1 RETURNING last_generated_message_id;", chatId)
+	res := tx.QueryRowContext(ctx, "UPDATE chat_common SET last_generated_message_id = last_generated_message_id + 1 WHERE id = $1 RETURNING last_generated_message_id;", chatId)
 	if res.Err() != nil {
 		return 0, res.Err()
 	}
@@ -77,8 +76,8 @@ func (m *CommonProjection) GetNextMessageId(ctx context.Context, chatId int64) (
 	return messageId, nil
 }
 
-func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, chatId int64) error {
-	r := m.db.QueryRowContext(ctx, "SELECT coalesce(last_generated_message_id, 0) from chat_common where id = $1", chatId)
+func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, tx *Tx, chatId int64) error {
+	r := tx.QueryRowContext(ctx, "SELECT coalesce(last_generated_message_id, 0) from chat_common where id = $1", chatId)
 	if r.Err() != nil {
 		return r.Err()
 	}
@@ -89,7 +88,7 @@ func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context
 	}
 
 	if currentGeneratedMessageId == 0 {
-		r := m.db.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from message where chat_id = $1", chatId)
+		r := tx.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from message where chat_id = $1", chatId)
 		if r.Err() != nil {
 			return r.Err()
 		}
@@ -102,7 +101,7 @@ func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context
 		if maxMessageId > 0 {
 			m.slogLogger.Info("Fast-forwarding messageId sequence", "chat_id", chatId)
 
-			_, err := m.db.ExecContext(ctx, "update chat_common set last_generated_message_id = $2 where id = $1", chatId, maxMessageId)
+			_, err := tx.ExecContext(ctx, "update chat_common set last_generated_message_id = $2 where id = $1", chatId, maxMessageId)
 			if err != nil {
 				return err
 			}
@@ -128,8 +127,8 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
-func initializeMessageUnread(ctx context.Context, db *sql.DB, participantId, chatId int64) error {
-	_, err := db.ExecContext(ctx, `
+func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId int64) error {
+	_, err := tx.ExecContext(ctx, `
 		with normalized_last_message as (
 		    select coalesce(
 				(select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2),
@@ -154,29 +153,31 @@ func initializeMessageUnread(ctx context.Context, db *sql.DB, participantId, cha
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
-	_, err := m.db.ExecContext(ctx, `
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		_, err := tx.ExecContext(ctx, `
 		insert into chat_participant(user_id, chat_id) values ($1, $2)
 		on conflict(user_id, chat_id) do nothing
 	`, event.ParticipantId, event.ChatId)
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	// because we select chat_common, inserted from this consumer group in ChatCreated handler
-	_, err = m.db.ExecContext(ctx, `
+		// because we select chat_common, inserted from this consumer group in ChatCreated handler
+		_, err = tx.ExecContext(ctx, `
 		insert into chat_user_view(id, title, pinned, user_id, created_timestamp, updated_timestamp) 
 			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
 		on conflict(user_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
 	`, event.ChatId, event.ParticipantId)
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	// recalc in case an user was added after
-	// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
-	err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
-	if err != nil {
-		return err
+		// recalc in case an user was added after
+		// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
+		return initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
+	})
+	if errOuter != nil {
+		return errOuter
 	}
 
 	LogWithTrace(ctx, m.slogLogger).Info(
@@ -228,35 +229,40 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 }
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
-
-	r, err := m.db.ExecContext(ctx, `
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		r, err := tx.ExecContext(ctx, `
 		UPDATE unread_messages_user_view 
 		SET unread_messages = unread_messages + $3
 		WHERE user_id = $1 AND chat_id = $2;
 	`, event.ParticipantId, event.ChatId, event.IncreaseOn)
-	if err != nil {
-		return fmt.Errorf("error during increasing unread messages: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("error during increasing unread messages: %w", err)
+		}
 
-	affected, err := r.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("error during increasing unread messages: %w", err)
-	}
+		affected, err := r.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("error during increasing unread messages: %w", err)
+		}
 
-	if affected == 0 {
-		err = initializeMessageUnread(ctx, m.db, event.ParticipantId, event.ChatId)
+		if affected == 0 {
+			err = initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
+			if err != nil {
+				return err
+			}
+		}
+
+		_, err = tx.ExecContext(ctx, `
+			update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
+		`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err
 		}
-	}
+		return nil
+	})
 
-	_, err = m.db.ExecContext(ctx, `
-			update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
-		`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
-	if err != nil {
-		return err
+	if errOuter != nil {
+		return errOuter
 	}
-
 	return nil
 }
 
