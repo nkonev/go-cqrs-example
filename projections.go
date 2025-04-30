@@ -32,13 +32,83 @@ func (m *CommonProjection) GetNextChatId(ctx context.Context) (int64, error) {
 	return nid, nil
 }
 
+func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context) error {
+	r := m.db.QueryRowContext(ctx, "SELECT is_called FROM chat_id_sequence")
+	if r.Err() != nil {
+		return r.Err()
+	}
+	var called bool
+	err := r.Scan(&called)
+	if err != nil {
+		return err
+	}
+
+	if !called {
+		r := m.db.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from chat_common")
+		if r.Err() != nil {
+			return r.Err()
+		}
+		var maxChatId int64
+		err := r.Scan(&maxChatId)
+		if err != nil {
+			return err
+		}
+
+		if maxChatId > 0 {
+			m.slogLogger.Info("Fast-forwarding chatId sequence")
+			_, err := m.db.ExecContext(ctx, "SELECT setval('chat_id_sequence', $1, true)", maxChatId)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (m *CommonProjection) GetNextMessageId(ctx context.Context, chatId int64) (int64, error) {
 	var messageId int64
 	res := m.db.QueryRowContext(ctx, "UPDATE chat_common SET last_generated_message_id = last_generated_message_id + 1 WHERE id = $1 RETURNING last_generated_message_id;", chatId)
+	if res.Err() != nil {
+		return 0, res.Err()
+	}
 	if err := res.Scan(&messageId); err != nil {
 		return 0, fmt.Errorf("error during generating message id: %w", err)
 	}
 	return messageId, nil
+}
+
+func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, chatId int64) error {
+	r := m.db.QueryRowContext(ctx, "SELECT coalesce(last_generated_message_id, 0) from chat_common where id = $1", chatId)
+	if r.Err() != nil {
+		return r.Err()
+	}
+	var currentGeneratedMessageId int64
+	err := r.Scan(&currentGeneratedMessageId)
+	if err != nil {
+		return err
+	}
+
+	if currentGeneratedMessageId == 0 {
+		r := m.db.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from message where chat_id = $1", chatId)
+		if r.Err() != nil {
+			return r.Err()
+		}
+		var maxMessageId int64
+		err := r.Scan(&maxMessageId)
+		if err != nil {
+			return err
+		}
+
+		if maxMessageId > 0 {
+			m.slogLogger.Info("Fast-forwarding messageId sequence", "chat_id", chatId)
+
+			_, err := m.db.ExecContext(ctx, "update chat_common set last_generated_message_id = $2 where id = $1", chatId, maxMessageId)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated) error {

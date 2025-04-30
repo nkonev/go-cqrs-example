@@ -39,6 +39,11 @@ type MessageRead struct {
 }
 
 func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) (int64, error) {
+	err := commonProjection.InitializeChatIdSequenceIfNeed(ctx)
+	if err != nil {
+		return 0, err
+	}
+
 	chatId, err := commonProjection.GetNextChatId(ctx)
 	if err != nil {
 		return 0, err
@@ -106,6 +111,11 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 }
 
 func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) (int64, error) {
+	err := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, s.ChatId)
+	if err != nil {
+		return 0, err
+	}
+
 	messageId, err := commonProjection.GetNextMessageId(ctx, s.ChatId)
 	if err != nil {
 		return 0, err

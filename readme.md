@@ -43,6 +43,10 @@ curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/
 
 # reset offsets for consumer groups
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
+# reset db
+docker rm -f postgresql
+docker volume rm go-cqrs-example_postgres_data
+docker compose up -d postgresql
 ```
 
 # Tracing
