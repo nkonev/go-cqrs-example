@@ -40,6 +40,7 @@ const LogFieldTraceId = "trace_id"
 // TODO mark message as read for user who composed it
 // TODO change chat
 // TODO delete chat
+// TODO remove participant from chat
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"

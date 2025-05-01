@@ -41,6 +41,9 @@ curl -i -X PUT -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/2/re
 # add participant into chat
 curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [2, 3]}'
 
+# get his chats - see unreads
+curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
+
 # reset offsets for consumer groups
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
 # reset db
