@@ -37,7 +37,6 @@ const TRACE_RESOURCE = "chat-cqrs-example"
 const LogFieldTraceId = "trace_id"
 
 // TODO unhardcode - use viper
-// TODO mark message as read for user who composed it
 // TODO change chat
 // TODO delete chat
 // TODO remove participant from chat

@@ -139,11 +139,17 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 
 	increaseUnreadMessagesErrors := []error{}
 	for _, participantId := range participantIds {
+
+		increase := 1
+		if participantId == s.OwnerId {
+			increase = 0
+		}
+
 		ui := &UnreadMessageIncreased{
 			AdditionalData: s.AdditionalData,
 			ParticipantId:  participantId,
 			ChatId:         s.ChatId,
-			IncreaseOn:     1,
+			IncreaseOn:     increase,
 		}
 		err = eventBus.Publish(ctx, ui)
 		if err != nil {
