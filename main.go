@@ -41,6 +41,7 @@ const LogFieldTraceId = "trace_id"
 // TODO change chat
 // TODO delete chat
 // TODO remove participant from chat
+// TODO consider batching for adding participants
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
