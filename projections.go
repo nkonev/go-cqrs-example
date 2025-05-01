@@ -378,7 +378,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	rows, err := m.db.QueryContext(ctx, `
 		select ch.id, ch.title, ch.pinned, coalesce(m.unread_messages, 0)
 		from chat_user_view ch
-		left join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
+		join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
 		where ch.user_id = $1
 		order by (ch.pinned, ch.updated_timestamp, ch.id) desc 
 	`, participantId)
