@@ -6,7 +6,7 @@ create table chat_common(
     title varchar(512) not null,
     last_generated_message_id bigint not null default 0,
     created_timestamp timestamp not null,
-    updated_timestamp timestamp
+    updated_timestamp timestamp not null
 );
 
 -- partition by chat_id
@@ -34,7 +34,7 @@ create table chat_user_view(
     pinned boolean not null default false,
     user_id bigint not null,
     created_timestamp timestamp not null,
-    updated_timestamp timestamp,
+    updated_timestamp timestamp not null,
     primary key (user_id, id)
 );
 

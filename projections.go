@@ -114,7 +114,7 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	_, err := m.db.ExecContext(ctx, `
 		insert into chat_common(id, title, created_timestamp, updated_timestamp) values ($1, $2, $3, $4)
 		on conflict(id) do update set title = excluded.title, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
-	`, event.ChatId, event.Title, event.AdditionalData.CreatedAt, nil)
+	`, event.ChatId, event.Title, event.AdditionalData.CreatedAt, event.AdditionalData.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -369,7 +369,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 		from chat_user_view ch
 		left join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
 		where ch.user_id = $1
-		order by ch.pinned asc, ch.updated_timestamp desc nulls last, ch.id desc 
+		order by (ch.pinned, ch.updated_timestamp, ch.id) desc 
 	`, participantId)
 	if err != nil {
 		return ma, err
