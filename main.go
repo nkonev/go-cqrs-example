@@ -41,6 +41,7 @@ const LogFieldTraceId = "trace_id"
 // TODO delete chat
 // TODO remove participant from chat
 // TODO consider batching for adding participants
+// TODO don't duplicate all the data for chat, just keep in chat_user_view a skeleton - triple (pinned, updated_timestamp, id) - then join with all the data in chat_common - it's going to help to have fast order by
 func main() {
 	kafkaBootstrapServers := []string{"127.0.0.1:9092"}
 	topicName := "events"
