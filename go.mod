@@ -7,7 +7,7 @@ require (
 	github.com/XSAM/otelsql v0.38.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/jackc/pgx/v4 v4.15.0
-	github.com/nkonev/watermill-opentelemetry v0.1.10
+	github.com/nkonev/watermill-opentelemetry v0.1.11
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.60.0
 	go.opentelemetry.io/contrib/propagators/jaeger v1.35.0
 	go.opentelemetry.io/otel v1.35.0

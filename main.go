@@ -183,7 +183,7 @@ func main() {
 		panic(err)
 	}
 
-	decoratedPublisher := wotel.NewPublisherDecorator(publisher)
+	decoratedPublisher := wotel.NewPublisherDecorator(publisher, wotel.WithTextMapPropagator(aJaegerPropagator))
 
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
 	cqrsRouter, err := message.NewRouter(message.RouterConfig{}, watermillLoggerAdapter)
@@ -197,7 +197,7 @@ func main() {
 	//
 	// List of available middlewares you can find in message/router/middleware.
 	cqrsRouter.AddMiddleware(middleware.Recoverer)
-	cqrsRouter.AddMiddleware(wotel.Trace())
+	cqrsRouter.AddMiddleware(wotel.Trace(wotel.WithTextMapPropagator(aJaegerPropagator)))
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
