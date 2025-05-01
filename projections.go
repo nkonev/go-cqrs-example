@@ -140,8 +140,8 @@ func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId 
 		    $1, 
 		    $2,
 		    (SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message))
-			FROM message m
-			WHERE m.chat_id = $2),
+				FROM message m
+				WHERE m.chat_id = $2),
 		    (SELECT normalized_last_message_id FROM normalized_last_message)
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
 	`, participantId, chatId)
@@ -173,7 +173,6 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		}
 
 		// recalc in case an user was added after
-		// and it will fix the situation when there wasn't an event "increase unreads" because of lack an record in chat_participant
 		return initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
 	})
 	if errOuter != nil {
@@ -271,19 +270,32 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	// but we give a chance to create a row unread_messages_user_view in case lack of it
 	// so message read event has a self-healing effect
 	_, err := m.db.ExecContext(ctx, `
-		with normalized_given_message as (
+		with existing_message_id as (
 			select coalesce(
 				(select id from message where chat_id = $2 and id = $3),
-				(select max(id) from message where chat_id = $2)
+				(select max(id) as max from message where chat_id = $2),
+				0
 			) as normalized_message_id
+		),
+		last_set_unread_message_id as (
+			select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2
+		),
+		normalized_given_message as (
+			select 
+				case 
+					when ((select normalized_message_id from existing_message_id) >= (select last_message_id from last_set_unread_message_id)) 
+						THEN (select normalized_message_id from existing_message_id)
+					else (select last_message_id from last_set_unread_message_id)
+				end 
+				as normalized_message_id
 		)
 		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
 		select 
 			$1, 
 			$2,
 			(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
-			FROM message m
-			WHERE m.chat_id = $2),
+				FROM message m
+				WHERE m.chat_id = $2),
 			(select normalized_message_id from normalized_given_message)
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
 	`, event.ParticipantId, event.ChatId, event.MessageId)
