@@ -164,9 +164,9 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 
 		// because we select chat_common, inserted from this consumer group in ChatCreated handler
 		_, err = tx.ExecContext(ctx, `
-		insert into chat_user_view(id, title, pinned, user_id, created_timestamp, updated_timestamp) 
-			select id, title, false, $2, created_timestamp, updated_timestamp from chat_common where id = $1
-		on conflict(user_id, id) do update set title = excluded.title, pinned = excluded.pinned, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
+		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
+			select id, false, $2, updated_timestamp from chat_common where id = $1
+		on conflict(user_id, id) do update set pinned = excluded.pinned, updated_timestamp = excluded.updated_timestamp
 	`, event.ChatId, event.ParticipantId)
 		if err != nil {
 			return err
@@ -289,7 +289,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 			) as normalized_message_id
 		),
 		last_set_unread_message_id as (
-			select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2
+			 select coalesce((select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2), 0) as last_message_id
 		),
 		normalized_given_message as (
 			select 
@@ -376,8 +376,9 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	ma := []ChatViewDto{}
 
 	rows, err := m.db.QueryContext(ctx, `
-		select ch.id, ch.title, ch.pinned, coalesce(m.unread_messages, 0)
+		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0)
 		from chat_user_view ch
+		join chat_common c on ch.id = c.id
 		join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
 		where ch.user_id = $1
 		order by (ch.pinned, ch.updated_timestamp, ch.id) desc 

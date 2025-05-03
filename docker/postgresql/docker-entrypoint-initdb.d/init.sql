@@ -30,13 +30,13 @@ create table message(
 -- partition by user_id
 create table chat_user_view(
     id bigint not null,
-    title varchar(512) not null,
     pinned boolean not null default false,
     user_id bigint not null,
-    created_timestamp timestamp not null,
     updated_timestamp timestamp not null,
     primary key (user_id, id)
 );
+
+create index chat_user_idx on chat_user_view(pinned, updated_timestamp, id);
 
 -- partition by user_id
 create table unread_messages_user_view(
