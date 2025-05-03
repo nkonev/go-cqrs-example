@@ -375,6 +375,9 @@ type ChatViewDto struct {
 func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([]ChatViewDto, error) {
 	ma := []ChatViewDto{}
 
+	// it is optimized (all order by in the same table)
+	// so querying a page (using keyset) from a large amount of chats is fast
+	// it's the root cause why we use cqrs
 	rows, err := m.db.QueryContext(ctx, `
 		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0)
 		from chat_user_view ch
