@@ -13,7 +13,7 @@ See [It's Okay To Store Data In Kafka](https://www.confluent.io/blog/okay-store-
 # Start
 ```bash
 docker compose up -d
-go run .
+go run . serve
 ```
 
 # Play with
@@ -50,6 +50,8 @@ docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstra
 docker rm -f postgresql
 docker volume rm go-cqrs-example_postgres_data
 docker compose up -d postgresql
+# ... or via
+go run . reset
 ```
 
 # Tracing

@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -135,4 +135,22 @@ func (db *DB) Migrate(mc MigrationConfig) error {
 	}
 	db.lgr.Info("Migration successfully completed")
 	return nil
+}
+
+func (db *DB) Reset(mc MigrationConfig) error {
+	_, err := db.Exec(fmt.Sprintf(`
+	drop sequence if exists chat_id_sequence;
+	
+	drop table if exists chat_common;
+	drop table if exists chat_participant;
+	drop table if exists message;
+	drop table if exists chat_user_view;
+	drop table if exists unread_messages_user_view;
+
+	drop table if exists %s;
+	
+	-- test
+`, mc.MigrationTable))
+	db.lgr.Info("Recreating database", "err", err)
+	return err
 }
