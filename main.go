@@ -14,7 +14,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/XSAM/otelsql"
 	"github.com/gin-gonic/gin"
-	_ "github.com/jackc/pgx/v4/stdlib"
 	wotel "github.com/nkonev/watermill-opentelemetry/pkg/opentelemetry"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -82,11 +81,17 @@ type HttpServerConfig struct {
 	MaxHeaderBytes int           `mapstructure:"maxHeaderBytes"`
 }
 
+type MigrationConfig struct {
+	MigrationTable    string        `mapstructure:"migrationTable"`
+	StatementDuration time.Duration `mapstructure:"statementDuration"`
+}
+
 type PostgreSQLConfig struct {
-	Url                string        `mapstructure:"url"`
-	MaxOpenConnections int           `mapstructure:"maxOpenConnections"`
-	MaxIdleConnections int           `mapstructure:"maxIdleConnections"`
-	MaxLifetime        time.Duration `mapstructure:"maxLifetime"`
+	Url                string          `mapstructure:"url"`
+	MaxOpenConnections int             `mapstructure:"maxOpenConnections"`
+	MaxIdleConnections int             `mapstructure:"maxIdleConnections"`
+	MaxLifetime        time.Duration   `mapstructure:"maxLifetime"`
+	MigrationConfig    MigrationConfig `mapstructure:"migration"`
 }
 
 type AppConfig struct {
@@ -523,6 +528,10 @@ func configureHttpServer(
 	return httpServer
 }
 
+func runMigrations(db *DB, cfg *AppConfig) error {
+	return db.Migrate(cfg.PostgreSQLConfig.MigrationConfig)
+}
+
 func runHttpServer(
 	slogLogger *slog.Logger,
 	httpServer *http.Server,
@@ -577,6 +586,7 @@ func main() {
 			configureHttpServer,
 		),
 		fx.Invoke(
+			runMigrations,
 			runCreateTopic,
 			runHttpServer,
 			runCqrsRouter,

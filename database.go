@@ -3,8 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/httpfs"
+	_ "github.com/jackc/pgx/v4/stdlib"
 	"log/slog"
+	"net/http"
 )
 
 type DB struct {
@@ -98,4 +104,35 @@ func Transact(ctx context.Context, db *DB, txFunc func(*Tx) error) (err error) {
 	}()
 	err = txFunc(tx)
 	return err
+}
+
+//go:embed migrations
+var embeddedMigrationFiles embed.FS
+
+func (db *DB) Migrate(mc MigrationConfig) error {
+	db.lgr.Info("Starting migration")
+	staticDir := http.FS(embeddedMigrationFiles)
+	src, err := httpfs.New(staticDir, "migrations")
+	if err != nil {
+		return err
+	}
+
+	pgInstance, err := postgres.WithInstance(db.DB, &postgres.Config{
+		MigrationsTable:  mc.MigrationTable,
+		StatementTimeout: mc.StatementDuration,
+	})
+	if err != nil {
+		return err
+	}
+
+	m, err := migrate.NewWithInstance("httpfs", src, "", pgInstance)
+	if err != nil {
+		return err
+	}
+	//defer m.Close()
+	if err := m.Up(); err != nil && err.Error() != "no change" {
+		return err
+	}
+	db.lgr.Info("Migration successfully completed")
+	return nil
 }

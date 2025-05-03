@@ -23,6 +23,9 @@ postgresql:
   maxOpenConnections: 16
   maxIdleConnections: 4
   maxLifetime: 30s
+  migration:
+    migrationTable: "go_migrate"
+    statementDuration: 15m
 server:
   address: ":8080"
   readTimeout: "10s"
