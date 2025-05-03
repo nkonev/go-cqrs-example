@@ -45,6 +45,8 @@ const LogFieldTraceId = "trace_id"
 // TODO remove participant from chat
 // TODO consider batching for adding participants
 // TODO draw the last message in user's chat view
+// TODO think about recalculate unreads in case remove message
+// TODO introduce isMessageOwner bool
 type KafkaConfig struct {
 	BootstrapServers    []string            `mapstructure:"bootstrapServers"`
 	Topic               string              `mapstructure:"topic"`
