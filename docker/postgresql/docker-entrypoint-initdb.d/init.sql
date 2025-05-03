@@ -36,7 +36,7 @@ create table chat_user_view(
     primary key (user_id, id)
 );
 
-create index chat_user_idx on chat_user_view(pinned, updated_timestamp, id);
+create index chat_user_idx on chat_user_view(user_id, pinned, updated_timestamp, id);
 
 -- partition by user_id
 create table unread_messages_user_view(
