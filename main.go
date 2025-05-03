@@ -44,7 +44,7 @@ const LogFieldTraceId = "trace_id"
 // TODO delete chat
 // TODO remove participant from chat
 // TODO consider batching for adding participants
-
+// TODO draw the last message in user's chat view
 type KafkaConfig struct {
 	BootstrapServers    []string            `mapstructure:"bootstrapServers"`
 	Topic               string              `mapstructure:"topic"`
