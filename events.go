@@ -40,6 +40,7 @@ type UnreadMessageIncreased struct {
 	ParticipantId  int64           `json:"participantId"`
 	ChatId         int64           `json:"chatId"`
 	IncreaseOn     int             `json:"increaseOn"`
+	IsMessageOwner bool            `json:"isMessageOwner"`
 }
 
 type MessageReaded struct {

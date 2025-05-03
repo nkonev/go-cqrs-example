@@ -229,7 +229,7 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		if event.IncreaseOn != 0 {
+		if !event.IsMessageOwner {
 			r, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET unread_messages = unread_messages + $3
@@ -250,7 +250,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 					return err
 				}
 			}
-		} else { // 0 means owner, so we just update his last_message_id
+		} else {
 			_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET last_message_id = (select max(id) from message where chat_id = $2)
