@@ -423,6 +423,7 @@ func configureEventProcessor(
 	watermillLoggerAdapter watermill.LoggerAdapter,
 	kafkaMarshaler kafka.MarshalerUnmarshaler,
 	cqrsMarshaler *CqrsMarshalerDecorator,
+	commonProjection *CommonProjection,
 ) (*cqrs.EventGroupProcessor, error) {
 	kafkaConsumerConfig := sarama.NewConfig()
 	kafkaConsumerConfig.Consumer.Return.Errors = cfg.KafkaConfig.KafkaConsumerConfig.ReturnErrors
@@ -451,6 +452,21 @@ func configureEventProcessor(
 			Marshaler: cqrsMarshaler,
 			Logger:    watermillLoggerAdapter,
 		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// All messages from this group will have one subscription.
+	// When message arrives, Watermill will match it with the correct handler.
+	err = eventProcessor.AddHandlersGroup(
+		cfg.KafkaConfig.ConsumerGroup,
+		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
+		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),
+		cqrs.NewGroupEventHandler(commonProjection.OnMessageCreated),
+		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageIncreased),
+		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageReaded),
 	)
 	if err != nil {
 		return nil, err
@@ -523,25 +539,8 @@ func runHttpServer(
 func runCqrsRouter(
 	slogLogger *slog.Logger,
 	cqrsRouter *message.Router,
-	cfg *AppConfig,
-	commonProjection *CommonProjection,
-	eventProcessor *cqrs.EventGroupProcessor,
+	processor *cqrs.EventGroupProcessor, // to configure it before this
 ) error {
-
-	// All messages from this group will have one subscription.
-	// When message arrives, Watermill will match it with the correct handler.
-	err := eventProcessor.AddHandlersGroup(
-		cfg.KafkaConfig.ConsumerGroup,
-		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
-		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
-		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),
-		cqrs.NewGroupEventHandler(commonProjection.OnMessageCreated),
-		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageIncreased),
-		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageReaded),
-	)
-	if err != nil {
-		return err
-	}
 
 	go func() {
 		err := cqrsRouter.Run(context.Background())
