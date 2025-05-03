@@ -15,13 +15,8 @@ import (
 // resetCmd represents the reset command
 var resetCmd = &cobra.Command{
 	Use:   "reset",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Reset offsets and storage",
+	Long:  `Reset offsets in Kafka for configured topic and consumer group, drops all the tables, sequences from PostgreSQL and creates empty ones with help of migration.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		RunReset()
 	},
