@@ -646,10 +646,11 @@ func RunHttpServer(
 func RunCqrsRouter(
 	slogLogger *slog.Logger,
 	cqrsRouter *message.Router,
-	processor *cqrs.EventGroupProcessor, // to configure it before this
+	processor *cqrs.EventGroupProcessor,
 ) error {
-
 	go func() {
+		slogLogger.Info("Starting CQRS router with a given Event Processor", "eventProcessor", fmt.Sprintf("%T", processor)) // to configure it before this
+
 		err := cqrsRouter.Run(context.Background())
 		if err != nil {
 			slogLogger.Error("Got cqrs error", "err", err)
