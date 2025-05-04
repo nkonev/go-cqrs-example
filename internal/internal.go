@@ -130,7 +130,7 @@ func CreateTypedConfig() (*AppConfig, error) {
 func ConfigureDatabase(
 	slogLogger *slog.Logger,
 	cfg *AppConfig,
-	tp *sdktrace.TracerProvider, // to configure it after tracing infrastructure
+	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*DB, error) {
 
@@ -142,7 +142,7 @@ func ConfigureDatabase(
 	}
 	err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
-	))
+	), otelsql.WithTracerProvider(tp))
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +410,7 @@ func ConfigurePublisher(
 	cfg *AppConfig,
 	watermillLogger watermill.LoggerAdapter,
 	propagator propagation.TextMapPropagator,
-	tp *sdktrace.TracerProvider, // to configure it after tracing infrastructure
+	tp *sdktrace.TracerProvider,
 	kafkaMarshaler kafka.MarshalerUnmarshaler,
 ) (message.Publisher, error) {
 	// You can use any Pub/Sub implementation from here: https://watermill.io/pubsubs/
@@ -433,7 +433,9 @@ func ConfigurePublisher(
 		return nil, err
 	}
 
-	publisherDecorator := wotel.NewPublisherDecorator(publisher, wotel.WithTextMapPropagator(propagator))
+	tr := tp.Tracer("chat-publisher")
+
+	publisherDecorator := wotel.NewPublisherDecorator(publisher, wotel.WithTextMapPropagator(propagator), wotel.WithTracer(tr))
 
 	return publisherDecorator, nil
 }
@@ -442,7 +444,7 @@ func ConfigureCqrsRouter(
 	slogLogger *slog.Logger,
 	watermillLoggerAdapter watermill.LoggerAdapter,
 	propagator propagation.TextMapPropagator,
-	tp *sdktrace.TracerProvider, // to configure it after tracing infrastructure
+	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*message.Router, error) {
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
@@ -451,13 +453,15 @@ func ConfigureCqrsRouter(
 		return nil, err
 	}
 
+	tr := tp.Tracer("chat-subscriber")
+
 	// Simple middleware which will recover panics from event or command handlers.
 	// More about router middlewares you can find in the documentation:
 	// https://watermill.io/docs/messages-router/#middleware
 	//
 	// List of available middlewares you can find in message/router/middleware.
 	cqrsRouter.AddMiddleware(middleware.Recoverer)
-	cqrsRouter.AddMiddleware(wotel.Trace(wotel.WithTextMapPropagator(propagator)))
+	cqrsRouter.AddMiddleware(wotel.Trace(wotel.WithTextMapPropagator(propagator), wotel.WithTracer(tr)))
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
 			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
