@@ -42,9 +42,11 @@ const LogFieldTraceId = "trace_id"
 
 // TODO change chat
 // TODO delete chat
+// TODO consider batching for adding participants - try to generate multiple tuples in values via scany
 // TODO draw the last message in user's chat view
 // TODO blog (title, short_description, full_description)
 // TODO participantsCount
+// TODO try a separate goroutine with a periodic "offset end" checking for a more fast fast-forwarding of  sequences
 type KafkaConfig struct {
 	BootstrapServers    []string            `mapstructure:"bootstrapServers"`
 	Topic               string              `mapstructure:"topic"`
