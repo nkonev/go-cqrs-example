@@ -53,11 +53,6 @@ type MessageRead struct {
 
 func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
 	chatId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
-		err := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
-		if err != nil {
-			return 0, err
-		}
-
 		return commonProjection.GetNextChatId(ctx, tx)
 	})
 
@@ -145,11 +140,6 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 
 func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
 	messageId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
-		err := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, s.ChatId)
-		if err != nil {
-			return 0, err
-		}
-
 		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)
 	})
 

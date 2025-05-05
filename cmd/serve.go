@@ -60,12 +60,14 @@ func RunServe() {
 			internal.ConfigureEventProcessor,
 			internal.ConfigureCommonProjection,
 			internal.ConfigureHttpServer,
+			internal.ConfigureSaramaClient,
 		),
 		fx.Invoke(
 			internal.RunMigrations,
 			internal.RunCreateTopic,
 			internal.RunHttpServer,
 			internal.RunCqrsRouter,
+			internal.RunSequenceFastforwarder,
 		),
 	)
 	appFx.Run()

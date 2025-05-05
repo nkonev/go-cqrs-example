@@ -31,3 +31,9 @@ server:
   readTimeout: "10s"
   writeTimeout: "10s"
   maxHeaderBytes: 20000000
+cqrs:
+  # sleepBeforeEvent: 500ms
+  sleepBeforeEvent: 0
+  restoring:
+    sequenceFastForward:
+      checkAreEventsProcessedInterval: 2s

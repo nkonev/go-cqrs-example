@@ -32,8 +32,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -96,11 +94,25 @@ type PostgreSQLConfig struct {
 	MigrationConfig    MigrationConfig `mapstructure:"migration"`
 }
 
+type SequenceFastForwardConfig struct {
+	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
+}
+
+type CqrsConfig struct {
+	SleepBeforeEvent time.Duration   `mapstructure:"sleepBeforeEvent"`
+	RestoringConfig  RestoringConfig `mapstructure:"restoring"`
+}
+
+type RestoringConfig struct {
+	SequenceFastForwardConfig SequenceFastForwardConfig `mapstructure:"sequenceFastForward"`
+}
+
 type AppConfig struct {
 	KafkaConfig      KafkaConfig      `mapstructure:"kafka"`
 	OtlpConfig       OtlpConfig       `mapstructure:"otlp"`
 	PostgreSQLConfig PostgreSQLConfig `mapstructure:"postgresql"`
 	HttpServerConfig HttpServerConfig `mapstructure:"server"`
+	CqrsConfig       CqrsConfig       `mapstructure:"cqrs"`
 }
 
 //go:embed config
@@ -291,95 +303,45 @@ func RunCreateTopic(
 	return nil
 }
 
-type OffsetResettingConsumer struct {
-	cfg            *KafkaConfig
-	finished       atomic.Bool
-	slogLogger     *slog.Logger
-	cancelFunction context.CancelFunc
-}
-
-// Setup is run at the beginning of a new session, before ConsumeClaim
-func (consumer *OffsetResettingConsumer) Setup(sarama.ConsumerGroupSession) error {
-	consumer.slogLogger.Info("Setup ConsumerGroupSession")
-	return nil
-}
-
-// Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
-func (consumer *OffsetResettingConsumer) Cleanup(sarama.ConsumerGroupSession) error {
-	consumer.slogLogger.Info("Cleanup ConsumerGroupSession")
-	return nil
-}
-
-// ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
-// Once the Messages() channel is closed, the Handler must finish its processing
-// loop and exit.
-func (consumer *OffsetResettingConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	consumer.slogLogger.Info("ConsumeClaim")
-	if !consumer.finished.Load() {
-		consumer.slogLogger.Info("Start resetting")
-		for i := range consumer.cfg.NumPartitions {
-			session.ResetOffset(consumer.cfg.Topic, i, 0, "")
-		}
-		consumer.finished.Store(true)
-		consumer.slogLogger.Info("Done resetting")
-		consumer.cancelFunction()
-	}
-	return nil
-}
-
 func RunResetPartitions(
 	slogLogger *slog.Logger,
 	cfg *AppConfig,
-	lc fx.Lifecycle,
+	saramaClient sarama.Client,
 ) error {
-	consumerGroupName := cfg.KafkaConfig.ConsumerGroup
-
+	slogLogger.Info("Start reset partitions")
 	config := sarama.NewConfig()
 	config.Version = sarama.V4_0_0_0
 
-	client, err := sarama.NewConsumerGroup(cfg.KafkaConfig.BootstrapServers, consumerGroupName, config)
+	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, saramaClient)
 	if err != nil {
 		return err
 	}
+	defer offsetManager.Close()
 
-	ctx, cancelFunction := context.WithCancel(context.Background())
-
-	consumer := OffsetResettingConsumer{
-		cfg:            &cfg.KafkaConfig,
-		finished:       atomic.Bool{},
-		slogLogger:     slogLogger,
-		cancelFunction: cancelFunction,
+	pms := make([]sarama.PartitionOffsetManager, cfg.KafkaConfig.NumPartitions)
+	for i := range cfg.KafkaConfig.NumPartitions {
+		partitionManager, mpErr := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
+		if mpErr != nil {
+			return mpErr
+		}
+		pms[i] = partitionManager
 	}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+	for _, partitionManager := range pms {
+		partitionManager.ResetOffset(0, "")
+	}
 
-	go func() {
-		defer wg.Done()
-		errC := client.Consume(ctx, []string{cfg.KafkaConfig.Topic}, &consumer)
-		if errC != nil {
-			slogLogger.Error("Error during creating consumer session")
-		}
-	}()
+	for _, partitionManager := range pms {
+		partitionManager.AsyncClose() // faster
+	}
 
-	<-ctx.Done()
-	consumer.slogLogger.Info("Finished resetting offsets")
-
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			slogLogger.Info("Stopping kafka session admin")
-
-			wg.Wait()
-			slogLogger.Info("Waited until Consume() has stopped")
-
-			if err := client.Close(); err != nil {
-				slogLogger.Error("Error shutting down kafka session admin", "err", err)
-			}
-			return nil
-		},
-	})
+	slogLogger.Info("Finished reset partitions")
 
 	return nil
+}
+
+func SetIsNeedSetSequences(commonProjection *CommonProjection) error {
+	return commonProjection.SetIsNeedSetSequences(context.Background())
 }
 
 func Shutdown(shutdowner fx.Shutdowner) {
@@ -444,6 +406,7 @@ func ConfigureCqrsRouter(
 	watermillLoggerAdapter watermill.LoggerAdapter,
 	propagator propagation.TextMapPropagator,
 	tp *sdktrace.TracerProvider,
+	cfg *AppConfig,
 	lc fx.Lifecycle,
 ) (*message.Router, error) {
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
@@ -463,6 +426,10 @@ func ConfigureCqrsRouter(
 	cqrsRouter.AddMiddleware(wotel.Trace(wotel.WithTextMapPropagator(propagator), wotel.WithTracer(tr)))
 	cqrsRouter.AddMiddleware(func(h message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
+			if cfg.CqrsConfig.SleepBeforeEvent > 0 {
+				LogWithTrace(msg.Context(), slogLogger).Info("Sleeping")
+				time.Sleep(cfg.CqrsConfig.SleepBeforeEvent)
+			}
 			LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
 			return h(msg)
 		}
@@ -659,6 +626,190 @@ func RunCqrsRouter(
 		}
 	}()
 	return nil
+}
+
+func ConfigureSaramaClient(
+	slogLogger *slog.Logger,
+	cfg *AppConfig,
+	lc fx.Lifecycle,
+) (sarama.Client, error) {
+	config := sarama.NewConfig()
+	config.Version = sarama.V4_0_0_0
+
+	client, err := sarama.NewClient(cfg.KafkaConfig.BootstrapServers, config)
+	if err != nil {
+		return nil, err
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx0 context.Context) error {
+			slogLogger.Info("Stopping kafka client")
+			ce := client.Close()
+			slogLogger.Info("Kafka client stopped", "err", ce)
+
+			return nil
+		},
+	})
+
+	return client, nil
+}
+
+func RunSequenceFastforwarder(
+	slogLogger *slog.Logger,
+	lc fx.Lifecycle,
+	commonProjection *CommonProjection,
+	cfg *AppConfig,
+	saramaClient sarama.Client,
+	db *DB,
+) error {
+	ctx, cancelFunc := context.WithCancelCause(context.Background())
+
+	ticker := time.NewTicker(cfg.CqrsConfig.RestoringConfig.SequenceFastForwardConfig.CheckAreEventsProcessedInterval)
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx0 context.Context) error {
+			slogLogger.Info("Stopping sequence fast-forwarder")
+			ticker.Stop()
+			cancelFunc(nil)
+
+			<-ctx.Done()
+			anE := ctx.Err()
+			if !errors.Is(anE, context.Canceled) {
+				slogLogger.Error("Gou unexpected error", "err", anE)
+				return anE
+			}
+
+			return nil
+		},
+	})
+
+	needCreateSequences, err := commonProjection.GetIsNeedSetSequences(ctx)
+	if err != nil {
+		return err
+	}
+
+	if needCreateSequences {
+		slogLogger.Info("Going to set sequences")
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					slogLogger.Info("Exiting sequences goroutine")
+					return
+				case <-ticker.C:
+					isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
+					if errE != nil {
+						slogLogger.Error("Error during checking isEndOnAllPArtitions", "err", errE)
+						continue
+					}
+					if isEnd {
+						ticker.Stop()
+
+						outerErr := Transact(ctx, db, func(tx *Tx) error {
+							errorsArr := []error{}
+
+							errI0 := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
+							if errI0 != nil {
+								slogLogger.Error("Error during setting message id sequences", "err", errI0)
+								errorsArr = append(errorsArr, errI0)
+							}
+
+							chatIds, errI1 := commonProjection.GetChatIds(ctx, tx) // TODO paginate
+							if errI1 != nil {
+								slogLogger.Error("Error during getting all chats", "err", errI1)
+								errorsArr = append(errorsArr, errI1)
+							}
+
+							for _, chatId := range chatIds {
+								errI2 := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, chatId)
+								if errI2 != nil {
+									slogLogger.Error("Error during setting message id sequences", "err", errI2)
+									errorsArr = append(errorsArr, errI2)
+								}
+							}
+
+							errU := commonProjection.UnsetIsNeedSetSequences(ctx, tx)
+							if errU != nil {
+								slogLogger.Error("Error during removing need set sequences", "err", errU)
+								errorsArr = append(errorsArr, errU)
+							}
+
+							if len(errorsArr) > 0 {
+								return errors.Join(errorsArr...)
+							}
+
+							slogLogger.Info("All the sequences was set successfully")
+
+							return nil
+						})
+
+						cancelFunc(outerErr)
+					} else {
+						slogLogger.Info("Awaiting for end")
+					}
+				}
+			}
+		}()
+	} else {
+		slogLogger.Info("No need set sequences")
+	}
+
+	return nil
+}
+
+func isEndOnAllPartitions(
+	slogLogger *slog.Logger,
+	cfg *AppConfig,
+	client sarama.Client,
+) (bool, error) {
+
+	maxOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
+
+	for i := range cfg.KafkaConfig.NumPartitions {
+		offset, err := client.GetOffset(cfg.KafkaConfig.Topic, i, sarama.OffsetNewest)
+		if err != nil {
+			return false, err
+		}
+		maxOffsets[i] = offset
+		slogLogger.Info("Got max", "partition", i, "offset", offset)
+	}
+
+	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, client)
+	if err != nil {
+		return false, err
+	}
+	defer offsetManager.Close()
+
+	givenOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
+	for i := range cfg.KafkaConfig.NumPartitions {
+		partitionManager, err := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
+		if err != nil {
+			return false, err
+		}
+		defer partitionManager.Close()
+
+		offs, _ := partitionManager.NextOffset()
+		if err != nil {
+			return false, err
+		}
+		givenOffsets[i] = offs
+		slogLogger.Info("Got given", "partition", i, "offset", offs)
+	}
+
+	hasOneLinitialized := false
+	for i := range cfg.KafkaConfig.NumPartitions {
+		if givenOffsets[i] == -1 {
+			continue
+		} else {
+			hasOneLinitialized = true
+
+			if maxOffsets[i] != givenOffsets[i] {
+				return false, nil
+			}
+		}
+	}
+
+	return hasOneLinitialized, nil
 }
 
 type ChatCreateDto struct {

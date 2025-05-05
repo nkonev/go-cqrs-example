@@ -52,12 +52,15 @@ func RunReset() {
 			internal.ConfigureTraceExporter,
 			internal.ConfigureDatabase,
 			internal.ConfigureKafkaAdmin,
+			internal.ConfigureCommonProjection,
+			internal.ConfigureSaramaClient,
 		),
 		fx.Invoke(
 			internal.RunResetDatabase,
 			internal.RunResetPartitions,
 			internal.RunMigrations,
 			internal.RunCreateTopic,
+			internal.SetIsNeedSetSequences,
 			internal.Shutdown,
 		),
 	)

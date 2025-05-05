@@ -76,6 +76,28 @@ func (m *CommonProjection) GetNextMessageId(ctx context.Context, tx *Tx, chatId 
 	return messageId, nil
 }
 
+func (m *CommonProjection) GetChatIds(ctx context.Context, tx *Tx) ([]int64, error) {
+	ma := []int64{}
+	rows, err := tx.QueryContext(ctx, `
+		select c.id
+		from chat_common c
+		order by c.id asc 
+	`)
+	if err != nil {
+		return ma, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ii int64
+		err = rows.Scan(&ii)
+		if err != nil {
+			return ma, err
+		}
+		ma = append(ma, ii)
+	}
+	return ma, nil
+}
+
 func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, tx *Tx, chatId int64) error {
 	r := tx.QueryRowContext(ctx, "SELECT coalesce(last_generated_message_id, 0) from chat_common where id = $1", chatId)
 	if r.Err() != nil {
@@ -108,6 +130,26 @@ func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context
 		}
 	}
 	return nil
+}
+
+func (m *CommonProjection) SetIsNeedSetSequences(ctx context.Context) error {
+	_, err := m.db.ExecContext(ctx, "insert into technical(id, need_set_sequences) values (1, true) on conflict (id) do update set need_set_sequences = excluded.need_set_sequences")
+	return err
+}
+
+func (m *CommonProjection) UnsetIsNeedSetSequences(ctx context.Context, tx *Tx) error {
+	_, err := tx.ExecContext(ctx, "delete from technical where need_set_sequences = true")
+	return err
+}
+
+func (m *CommonProjection) GetIsNeedSetSequences(ctx context.Context) (bool, error) {
+	r := m.db.QueryRowContext(ctx, "select exists(select * from technical where need_set_sequences = true)")
+	var e bool
+	err := r.Scan(&e)
+	if err != nil {
+		return false, err
+	}
+	return e, err
 }
 
 func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated) error {

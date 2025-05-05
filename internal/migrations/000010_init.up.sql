@@ -46,3 +46,9 @@ create table unread_messages_user_view(
     last_message_id bigint not null default 0,
     primary key (user_id, chat_id)
 );
+
+create table technical(
+    id int primary key,
+    need_set_sequences bool not null default false
+);
+
