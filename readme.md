@@ -41,6 +41,12 @@ curl -i -X PUT -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/2/re
 # add participant into chat
 curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [2, 3]}'
 
+# remove participant from chat
+curl -i -X DELETE -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [3]}'
+
+# see participants
+curl -Ss -X GET --url 'http://localhost:8080/chat/1/participants' | jq
+
 # get his chats - see unreads
 curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
 

@@ -188,11 +188,42 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 	return nil
 }
 
+func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *ParticipantRemoved) error {
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		_, err := tx.ExecContext(ctx, `
+		delete from chat_participant where (user_id, chat_id) = ($1, $2)
+	`, event.ParticipantId, event.ChatId)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.ExecContext(ctx, `
+		delete from chat_user_view where (id, user_id) = ($1, $2)
+	`, event.ChatId, event.ParticipantId)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if errOuter != nil {
+		return errOuter
+	}
+
+	LogWithTrace(ctx, m.slogLogger).Info(
+		"Participant removed from common chat",
+		"user_id", event.ParticipantId,
+		"chat_id", event.ChatId,
+	)
+
+	return nil
+}
+
 func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
 	_, err := m.db.ExecContext(ctx, `
 		update chat_user_view
 		set pinned = $3
-		where id = $1 and user_id = $2
+		where (id, user_id) = ($1, $2)
 	`, event.ChatId, event.ParticipantId, event.Pinned)
 	if err != nil {
 		return err
@@ -233,7 +264,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 			r, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET unread_messages = unread_messages + $3
-				WHERE user_id = $1 AND chat_id = $2;
+				WHERE (user_id, chat_id) = ($1, $2);
 			`, event.ParticipantId, event.ChatId, event.IncreaseOn)
 			if err != nil {
 				return fmt.Errorf("error during increasing unread messages: %w", err)
@@ -254,7 +285,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 			_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET last_message_id = (select max(id) from message where chat_id = $2)
-				WHERE user_id = $1 AND chat_id = $2;
+				WHERE (user_id, chat_id) = ($1, $2);
 			`, event.ParticipantId, event.ChatId)
 			if err != nil {
 				return fmt.Errorf("error during increasing unread messages: %w", err)
@@ -262,7 +293,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 		}
 
 		_, err := tx.ExecContext(ctx, `
-			update chat_user_view set updated_timestamp = $3 where user_id = $1 and id = $2
+			update chat_user_view set updated_timestamp = $3 where (user_id, id) = ($1, $2)
 		`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err

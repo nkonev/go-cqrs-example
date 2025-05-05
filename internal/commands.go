@@ -17,6 +17,12 @@ type ParticipantAdd struct {
 	ParticipantIds []int64
 }
 
+type ParticipantRemove struct {
+	AdditionalData *AdditionalData
+	ChatId         int64
+	ParticipantIds []int64
+}
+
 type ChatPin struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
@@ -82,6 +88,27 @@ func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface)
 	addParticipantErrors := []error{}
 	for _, participantId := range s.ParticipantIds {
 		pa := &ParticipantAdded{
+			AdditionalData: s.AdditionalData,
+			ParticipantId:  participantId,
+			ChatId:         s.ChatId,
+		}
+		err := eventBus.Publish(ctx, pa)
+		if err != nil {
+			addParticipantErrors = append(addParticipantErrors, err)
+		}
+	}
+
+	if len(addParticipantErrors) > 0 {
+		return errors.Join(addParticipantErrors...)
+	}
+
+	return nil
+}
+
+func (s *ParticipantRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
+	addParticipantErrors := []error{}
+	for _, participantId := range s.ParticipantIds {
+		pa := &ParticipantRemoved{
 			AdditionalData: s.AdditionalData,
 			ParticipantId:  participantId,
 			ChatId:         s.ChatId,

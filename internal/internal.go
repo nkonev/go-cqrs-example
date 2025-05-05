@@ -42,7 +42,6 @@ const LogFieldTraceId = "trace_id"
 
 // TODO change chat
 // TODO delete chat
-// TODO remove participant from chat
 // TODO consider batching for adding participants
 // TODO draw the last message in user's chat view
 // TODO think about recalculate unreads in case remove message
@@ -562,6 +561,7 @@ func ConfigureEventProcessor(
 		cfg.KafkaConfig.ConsumerGroup,
 		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
+		cqrs.NewGroupEventHandler(commonProjection.OnParticipantRemoved),
 		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),
 		cqrs.NewGroupEventHandler(commonProjection.OnMessageCreated),
 		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageIncreased),
@@ -672,6 +672,10 @@ type ParticipantAddDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
+type ParticipantRemoveDto struct {
+	ParticipantIds []int64 `json:"participantIds"`
+}
+
 func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus EventBusInterface, dbWrapper *DB, commonProjection *CommonProjection) {
 	ginRouter.POST("/chat", func(g *gin.Context) {
 
@@ -742,7 +746,42 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 
 		err = cc.Handle(g.Request.Context(), eventBus)
 		if err != nil {
-			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatCreate command", "err", err)
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ParticipantAdd command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
+	ginRouter.DELETE("/chat/:id/participant", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		ccd := new(ParticipantRemoveDto)
+
+		err = g.Bind(ccd)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding ParticipantRemoveDto", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := ParticipantRemove{
+			AdditionalData: GenerateMessageAdditionalData(),
+			ParticipantIds: ccd.ParticipantIds,
+			ChatId:         chatId,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ParticipantRemove command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -893,6 +932,25 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			return
 		}
 		g.JSON(http.StatusOK, chats)
+	})
+
+	ginRouter.GET("/chat/:id/participants", func(g *gin.Context) {
+		cid := g.Param("id")
+
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		participants, err := commonProjection.GetParticipants(g.Request.Context(), chatId)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error getting participants", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+		g.JSON(http.StatusOK, participants)
 	})
 
 	ginRouter.GET("/chat/:id/message/search", func(g *gin.Context) {

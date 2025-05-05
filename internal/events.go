@@ -20,6 +20,12 @@ type ParticipantAdded struct {
 	ChatId         int64           `json:"chatId"`
 }
 
+type ParticipantRemoved struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ParticipantId  int64           `json:"participantId"`
+	ChatId         int64           `json:"chatId"`
+}
+
 type ChatPinned struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ParticipantId  int64           `json:"participantId"`
@@ -64,6 +70,10 @@ func (s *ParticipantAdded) GetPartitionKey() string {
 	return ToString(s.ChatId)
 }
 
+func (s *ParticipantRemoved) GetPartitionKey() string {
+	return ToString(s.ChatId)
+}
+
 func (s *ChatPinned) GetPartitionKey() string {
 	return ToString(s.ChatId)
 }
@@ -86,6 +96,11 @@ func (s *ChatCreated) SetOffset(partition int32, offset int64) {
 }
 
 func (s *ParticipantAdded) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *ParticipantRemoved) SetOffset(partition int32, offset int64) {
 	s.AdditionalData.Partition = partition
 	s.AdditionalData.Offset = offset
 }
@@ -116,6 +131,10 @@ func (s *ChatCreated) Name() string {
 
 func (s *ParticipantAdded) Name() string {
 	return "participantAdded"
+}
+
+func (s *ParticipantRemoved) Name() string {
+	return "participantRemoved"
 }
 
 func (s *ChatPinned) Name() string {
