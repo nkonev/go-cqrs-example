@@ -219,6 +219,30 @@ func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *Part
 	return nil
 }
 
+func (m *CommonProjection) OnMessageRemoved(ctx context.Context, event *MessageRemoved) error {
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		_, err := tx.ExecContext(ctx, `
+		delete from message where (id, chat_id) = ($1, $2)
+	`, event.MessageId, event.ChatId)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if errOuter != nil {
+		return errOuter
+	}
+
+	LogWithTrace(ctx, m.slogLogger).Info(
+		"Message removed from common chat",
+		"message_id", event.MessageId,
+		"chat_id", event.ChatId,
+	)
+
+	return nil
+}
+
 func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) error {
 	_, err := m.db.ExecContext(ctx, `
 		update chat_user_view
@@ -307,16 +331,20 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
-func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
-	// actually it should be an update
-	// but we give a chance to create a row unread_messages_user_view in case lack of it
-	// so message read event has a self-healing effect
+func (m *CommonProjection) setUnreadMessages(ctx context.Context, participantId, chatId, messageId int64, noMessageIdSet bool) error {
 	_, err := m.db.ExecContext(ctx, `
 		with existing_message_id as (
-			select coalesce(
-				(select id from message where chat_id = $2 and id = $3),
-				(select max(id) as max from message where chat_id = $2),
-				0
+			select (
+				case 
+					when $4 = true then 0
+					else (
+						select coalesce(
+							(select id from message where chat_id = $2 and id = $3),
+							(select max(id) as max from message where chat_id = $2),
+							0
+						)
+					)
+				end
 			) as normalized_message_id
 		),
 		last_set_unread_message_id as (
@@ -340,9 +368,26 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 				WHERE m.chat_id = $2),
 			(select normalized_message_id from normalized_given_message)
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, event.ParticipantId, event.ChatId, event.MessageId)
+	`, participantId, chatId, messageId, noMessageIdSet)
+	return err
+}
+
+func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *MessageReaded) error {
+	// actually it should be an update
+	// but we give a chance to create a row unread_messages_user_view in case lack of it
+	// so message read event has a self-healing effect
+	err := m.setUnreadMessages(ctx, event.ParticipantId, event.ChatId, event.MessageId, false)
 	if err != nil {
 		return fmt.Errorf("error during read messages: %w", err)
+	}
+
+	return nil
+}
+
+func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
+	err := m.setUnreadMessages(ctx, event.ParticipantId, event.ChatId, 0, true)
+	if err != nil {
+		return fmt.Errorf("error during refresh unread messages: %w", err)
 	}
 
 	return nil
@@ -364,6 +409,19 @@ func (m *CommonProjection) GetParticipants(ctx context.Context, chatId int64) ([
 		res = append(res, pid)
 	}
 	return res, nil
+}
+
+func (m *CommonProjection) GetMessageOwner(ctx context.Context, chatId, messageId int64) (int64, error) {
+	r := m.db.QueryRowContext(ctx, "select owner_id from message where (chat_id, id) = ($1, $2)", chatId, messageId)
+	if r.Err() != nil {
+		return 0, r.Err()
+	}
+	var ownerId int64
+	err := r.Scan(&ownerId)
+	if err != nil {
+		return 0, err
+	}
+	return ownerId, nil
 }
 
 type MessageViewDto struct {

@@ -50,6 +50,9 @@ curl -Ss -X GET --url 'http://localhost:8080/chat/1/participants' | jq
 # get his chats - see unreads
 curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
 
+# remove message from chat
+curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/1'
+
 # reset offsets for consumer groups
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
 # reset db

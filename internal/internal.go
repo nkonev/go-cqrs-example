@@ -565,6 +565,8 @@ func ConfigureEventProcessor(
 		cqrs.NewGroupEventHandler(commonProjection.OnMessageCreated),
 		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageIncreased),
 		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageReaded),
+		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageRefreshed),
+		cqrs.NewGroupEventHandler(commonProjection.OnMessageRemoved),
 	)
 	if err != nil {
 		return nil, err
@@ -781,6 +783,46 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 		err = cc.Handle(g.Request.Context(), eventBus)
 		if err != nil {
 			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ParticipantRemove command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
+	ginRouter.DELETE("/chat/:id/message/:messageId", func(g *gin.Context) {
+		cid := g.Param("id")
+		chatId, err := ParseInt64(cid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		mid := g.Param("messageId")
+		messageId, err := ParseInt64(mid)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding messageId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		userId, err := getUserId(g)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error parsing UserId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := MessageRemove{
+			AdditionalData: GenerateMessageAdditionalData(),
+			MessageId:      messageId,
+			ChatId:         chatId,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus, commonProjection, userId)
+		if err != nil {
+			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageRemove command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}

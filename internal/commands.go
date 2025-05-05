@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 type ChatCreate struct {
@@ -21,6 +22,12 @@ type ParticipantRemove struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
 	ParticipantIds []int64
+}
+
+type MessageRemove struct {
+	AdditionalData *AdditionalData
+	ChatId         int64
+	MessageId      int64
 }
 
 type ChatPin struct {
@@ -197,4 +204,48 @@ func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface) er
 		MessageId:      s.MessageId,
 	}
 	return eventBus.Publish(ctx, cp)
+}
+
+func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
+
+	ownerId, err := commonProjection.GetMessageOwner(ctx, s.ChatId, s.MessageId)
+	if err != nil {
+		return err
+	}
+
+	if ownerId != userId {
+		return fmt.Errorf("User %v is not an owner of message %v in chat %v", userId, s.MessageId, s.ChatId)
+	}
+
+	cp := &MessageRemoved{
+		AdditionalData: s.AdditionalData,
+		ChatId:         s.ChatId,
+		MessageId:      s.MessageId,
+	}
+	err = eventBus.Publish(ctx, cp)
+	if err != nil {
+		return err
+	}
+
+	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
+	if err != nil {
+		return err
+	}
+
+	refreshUnreadMessagesErrors := []error{}
+	for _, participantId := range participantIds {
+		ui := &UnreadMessageRefreshed{
+			AdditionalData: s.AdditionalData,
+			ParticipantId:  participantId,
+			ChatId:         s.ChatId,
+		}
+		err = eventBus.Publish(ctx, ui)
+		if err != nil {
+			refreshUnreadMessagesErrors = append(refreshUnreadMessagesErrors, err)
+		}
+	}
+	if len(refreshUnreadMessagesErrors) > 0 {
+		return errors.Join(refreshUnreadMessagesErrors...)
+	}
+	return nil
 }

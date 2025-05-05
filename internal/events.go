@@ -49,9 +49,21 @@ type UnreadMessageIncreased struct {
 	IsMessageOwner bool            `json:"isMessageOwner"`
 }
 
+type UnreadMessageRefreshed struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ParticipantId  int64           `json:"participantId"`
+	ChatId         int64           `json:"chatId"`
+}
+
 type MessageReaded struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ParticipantId  int64           `json:"participantId"`
+	ChatId         int64           `json:"chatId"`
+	MessageId      int64           `json:"messageId"`
+}
+
+type MessageRemoved struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
 	ChatId         int64           `json:"chatId"`
 	MessageId      int64           `json:"messageId"`
 }
@@ -90,6 +102,14 @@ func (s *MessageReaded) GetPartitionKey() string {
 	return ToString(s.ChatId)
 }
 
+func (s *MessageRemoved) GetPartitionKey() string {
+	return ToString(s.ChatId)
+}
+
+func (s *UnreadMessageRefreshed) GetPartitionKey() string {
+	return ToString(s.ChatId)
+}
+
 func (s *ChatCreated) SetOffset(partition int32, offset int64) {
 	s.AdditionalData.Partition = partition
 	s.AdditionalData.Offset = offset
@@ -125,6 +145,16 @@ func (s *MessageReaded) SetOffset(partition int32, offset int64) {
 	s.AdditionalData.Offset = offset
 }
 
+func (s *MessageRemoved) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
+func (s *UnreadMessageRefreshed) SetOffset(partition int32, offset int64) {
+	s.AdditionalData.Partition = partition
+	s.AdditionalData.Offset = offset
+}
+
 func (s *ChatCreated) Name() string {
 	return "chatCreated"
 }
@@ -151,4 +181,12 @@ func (s *UnreadMessageIncreased) Name() string {
 
 func (s *MessageReaded) Name() string {
 	return "messageReaded"
+}
+
+func (s *MessageRemoved) Name() string {
+	return "messageRemoved"
+}
+
+func (s *UnreadMessageRefreshed) Name() string {
+	return "unreadMessageRefreshed"
 }
