@@ -43,7 +43,6 @@ const LogFieldTraceId = "trace_id"
 // TODO change chat
 // TODO delete chat
 // TODO draw the last message in user's chat view
-// TODO think about recalculate unreads in case remove message
 // TODO blog (title, short_description, full_description)
 // TODO participantsCount
 type KafkaConfig struct {
