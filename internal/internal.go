@@ -694,7 +694,7 @@ func RunSequenceFastforwarder(
 				return nil
 			}
 
-			slogLogger.Info("Checking end for all partitions")
+			slogLogger.Info("Checking for the current offsets will be equal to the latest ones for all partitions")
 			isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
 			if errE != nil {
 				slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
@@ -738,7 +738,7 @@ func RunSequenceFastforwarder(
 
 				return nil
 			} else {
-				slogLogger.Info("Offsets are still not last")
+				slogLogger.Info("The current offsets still aren't equal to the latest ones")
 			}
 
 			return nil
