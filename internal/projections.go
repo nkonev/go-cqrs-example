@@ -142,14 +142,22 @@ func (m *CommonProjection) UnsetIsNeedSetSequences(ctx context.Context, tx *Tx) 
 	return err
 }
 
-func (m *CommonProjection) GetIsNeedSetSequences(ctx context.Context) (bool, error) {
-	r := m.db.QueryRowContext(ctx, "select exists(select * from technical where need_set_sequences = true)")
+func (m *CommonProjection) GetIsNeedSetSequencesTx(ctx context.Context, tx *Tx) (bool, error) {
+	r := tx.QueryRowContext(ctx, "select exists(select * from technical where need_set_sequences = true)")
 	var e bool
 	err := r.Scan(&e)
 	if err != nil {
 		return false, err
 	}
 	return e, err
+}
+
+const lockIdKey1 = 1
+const lockIdKey2 = 2
+
+func (m *CommonProjection) SetXactFastForwardSequenceLock(ctx context.Context, tx *Tx) error {
+	_, err := tx.ExecContext(ctx, "select pg_advisory_xact_lock($1, $2)", lockIdKey1, lockIdKey2)
+	return err
 }
 
 func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated) error {

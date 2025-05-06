@@ -65,9 +65,9 @@ func RunServe() {
 		fx.Invoke(
 			internal.RunMigrations,
 			internal.RunCreateTopic,
-			internal.RunHttpServer,
 			internal.RunCqrsRouter,
 			internal.RunSequenceFastforwarder,
+			internal.RunHttpServer,
 		),
 	)
 	appFx.Run()

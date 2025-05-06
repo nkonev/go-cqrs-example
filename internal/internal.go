@@ -656,102 +656,104 @@ func ConfigureSaramaClient(
 
 func RunSequenceFastforwarder(
 	slogLogger *slog.Logger,
-	lc fx.Lifecycle,
 	commonProjection *CommonProjection,
 	cfg *AppConfig,
 	saramaClient sarama.Client,
 	db *DB,
+	lc fx.Lifecycle,
 ) error {
-	ctx, cancelFunc := context.WithCancelCause(context.Background())
-
-	ticker := time.NewTicker(cfg.CqrsConfig.RestoringConfig.SequenceFastForwardConfig.CheckAreEventsProcessedInterval)
+	stoppingCtx, cancelFunc := context.WithCancel(context.Background())
 
 	lc.Append(fx.Hook{
-		OnStop: func(ctx0 context.Context) error {
-			slogLogger.Info("Stopping sequence fast-forwarder")
-			ticker.Stop()
-			cancelFunc(nil)
-
-			<-ctx.Done()
-			anE := ctx.Err()
-			if !errors.Is(anE, context.Canceled) {
-				slogLogger.Error("Gou unexpected error", "err", anE)
-				return anE
-			}
-
+		OnStop: func(ctx context.Context) error {
+			slogLogger.Info("Stopping fast-forwarder")
+			cancelFunc()
 			return nil
 		},
 	})
 
-	needCreateSequences, err := commonProjection.GetIsNeedSetSequences(ctx)
-	if err != nil {
-		return err
-	}
+	ctx := context.Background()
 
-	if needCreateSequences {
-		slogLogger.Info("Going to set sequences")
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					slogLogger.Info("Exiting sequences goroutine")
-					return
-				case <-ticker.C:
-					isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
-					if errE != nil {
-						slogLogger.Error("Error during checking isEndOnAllPArtitions", "err", errE)
-						continue
-					}
-					if isEnd {
-						ticker.Stop()
+	du := cfg.CqrsConfig.RestoringConfig.SequenceFastForwardConfig.CheckAreEventsProcessedInterval
 
-						outerErr := Transact(ctx, db, func(tx *Tx) error {
-							errorsArr := []error{}
+	for {
+		slogLogger.Info("Attempting to fast-forward sequences")
+		txErr := Transact(ctx, db, func(tx *Tx) error {
+			xerr := commonProjection.SetXactFastForwardSequenceLock(ctx, tx)
+			if xerr != nil {
+				return xerr
+			}
 
-							errI0 := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
-							if errI0 != nil {
-								slogLogger.Error("Error during setting message id sequences", "err", errI0)
-								errorsArr = append(errorsArr, errI0)
-							}
+			stillNeedFastforwardSequences, gxerr := commonProjection.GetIsNeedSetSequencesTx(ctx, tx)
+			if gxerr != nil {
+				return gxerr
+			}
+			if !stillNeedFastforwardSequences {
+				slogLogger.Info("Now is not need to fast-forward sequences")
+				cancelFunc()
+				return nil
+			}
 
-							chatIds, errI1 := commonProjection.GetChatIds(ctx, tx) // TODO paginate
-							if errI1 != nil {
-								slogLogger.Error("Error during getting all chats", "err", errI1)
-								errorsArr = append(errorsArr, errI1)
-							}
+			slogLogger.Info("Checking end for all partitions")
+			isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
+			if errE != nil {
+				slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
+				return errE
+			}
+			if isEnd {
+				errorsArr := []error{}
 
-							for _, chatId := range chatIds {
-								errI2 := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, chatId)
-								if errI2 != nil {
-									slogLogger.Error("Error during setting message id sequences", "err", errI2)
-									errorsArr = append(errorsArr, errI2)
-								}
-							}
+				errI0 := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
+				if errI0 != nil {
+					slogLogger.Error("Error during setting message id sequences", "err", errI0)
+					errorsArr = append(errorsArr, errI0)
+				}
 
-							errU := commonProjection.UnsetIsNeedSetSequences(ctx, tx)
-							if errU != nil {
-								slogLogger.Error("Error during removing need set sequences", "err", errU)
-								errorsArr = append(errorsArr, errU)
-							}
+				chatIds, errI1 := commonProjection.GetChatIds(ctx, tx) // TODO paginate
+				if errI1 != nil {
+					slogLogger.Error("Error during getting all chats", "err", errI1)
+					errorsArr = append(errorsArr, errI1)
+				}
 
-							if len(errorsArr) > 0 {
-								return errors.Join(errorsArr...)
-							}
-
-							slogLogger.Info("All the sequences was set successfully")
-
-							return nil
-						})
-
-						cancelFunc(outerErr)
-					} else {
-						slogLogger.Info("Awaiting for end")
+				for _, chatId := range chatIds {
+					errI2 := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, chatId)
+					if errI2 != nil {
+						slogLogger.Error("Error during setting message id sequences", "err", errI2)
+						errorsArr = append(errorsArr, errI2)
 					}
 				}
+
+				errU := commonProjection.UnsetIsNeedSetSequences(ctx, tx)
+				if errU != nil {
+					slogLogger.Error("Error during removing need set sequences", "err", errU)
+					errorsArr = append(errorsArr, errU)
+				}
+
+				if len(errorsArr) > 0 {
+					return errors.Join(errorsArr...)
+				}
+
+				slogLogger.Info("All the sequences was set successfully")
+				cancelFunc()
+
+				return nil
+			} else {
+				slogLogger.Info("Offsets are still not last")
 			}
-		}()
-	} else {
-		slogLogger.Info("No need set sequences")
+
+			return nil
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		if errors.Is(stoppingCtx.Err(), context.Canceled) {
+			slogLogger.Info("Exiting from fast-forwarder")
+			break
+		} else {
+			slogLogger.Info("Will wait before the next check iteration", "duration", du)
+			time.Sleep(du)
+		}
 	}
 
 	return nil
