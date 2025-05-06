@@ -341,7 +341,7 @@ func RunResetPartitions(
 }
 
 func SetIsNeedSetSequences(commonProjection *CommonProjection) error {
-	return commonProjection.SetIsNeedSetSequences(context.Background())
+	return commonProjection.SetIsNeedToFastForwardSequences(context.Background())
 }
 
 func Shutdown(shutdowner fx.Shutdowner) {
@@ -684,11 +684,11 @@ func RunSequenceFastforwarder(
 				return xerr
 			}
 
-			stillNeedFastforwardSequences, gxerr := commonProjection.GetIsNeedSetSequencesTx(ctx, tx)
+			stillNeedFastForwardSequences, gxerr := commonProjection.GetIsNeedToFastForwardSequences(ctx, tx)
 			if gxerr != nil {
 				return gxerr
 			}
-			if !stillNeedFastforwardSequences {
+			if !stillNeedFastForwardSequences {
 				slogLogger.Info("Now is not need to fast-forward sequences")
 				cancelFunc()
 				return nil
@@ -723,9 +723,9 @@ func RunSequenceFastforwarder(
 					}
 				}
 
-				errU := commonProjection.UnsetIsNeedSetSequences(ctx, tx)
+				errU := commonProjection.UnsetIsNeedToFastForwardSequences(ctx, tx)
 				if errU != nil {
-					slogLogger.Error("Error during removing need set sequences", "err", errU)
+					slogLogger.Error("Error during removing need fast-forward sequences", "err", errU)
 					errorsArr = append(errorsArr, errU)
 				}
 
@@ -733,7 +733,7 @@ func RunSequenceFastforwarder(
 					return errors.Join(errorsArr...)
 				}
 
-				slogLogger.Info("All the sequences was set successfully")
+				slogLogger.Info("All the sequences was fast-forwarded successfully")
 				cancelFunc()
 
 				return nil

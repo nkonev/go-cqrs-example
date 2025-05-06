@@ -132,18 +132,18 @@ func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context
 	return nil
 }
 
-func (m *CommonProjection) SetIsNeedSetSequences(ctx context.Context) error {
-	_, err := m.db.ExecContext(ctx, "insert into technical(id, need_set_sequences) values (1, true) on conflict (id) do update set need_set_sequences = excluded.need_set_sequences")
+func (m *CommonProjection) SetIsNeedToFastForwardSequences(ctx context.Context) error {
+	_, err := m.db.ExecContext(ctx, "insert into technical(id, need_to_fast_forward_sequences) values (1, true) on conflict (id) do update set need_to_fast_forward_sequences = excluded.need_to_fast_forward_sequences")
 	return err
 }
 
-func (m *CommonProjection) UnsetIsNeedSetSequences(ctx context.Context, tx *Tx) error {
-	_, err := tx.ExecContext(ctx, "delete from technical where need_set_sequences = true")
+func (m *CommonProjection) UnsetIsNeedToFastForwardSequences(ctx context.Context, tx *Tx) error {
+	_, err := tx.ExecContext(ctx, "delete from technical where need_to_fast_forward_sequences = true")
 	return err
 }
 
-func (m *CommonProjection) GetIsNeedSetSequencesTx(ctx context.Context, tx *Tx) (bool, error) {
-	r := tx.QueryRowContext(ctx, "select exists(select * from technical where need_set_sequences = true)")
+func (m *CommonProjection) GetIsNeedToFastForwardSequences(ctx context.Context, tx *Tx) (bool, error) {
+	r := tx.QueryRowContext(ctx, "select exists(select * from technical where need_to_fast_forward_sequences = true)")
 	var e bool
 	err := r.Scan(&e)
 	if err != nil {

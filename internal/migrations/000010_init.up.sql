@@ -49,6 +49,6 @@ create table unread_messages_user_view(
 
 create table technical(
     id int primary key,
-    need_set_sequences bool not null default false
+    need_to_fast_forward_sequences bool not null default false
 );
 
