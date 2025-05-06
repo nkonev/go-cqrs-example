@@ -340,7 +340,7 @@ func RunResetPartitions(
 	return nil
 }
 
-func SetIsNeedSetSequences(commonProjection *CommonProjection) error {
+func SetIsNeedToFastForwardSequences(commonProjection *CommonProjection) error {
 	return commonProjection.SetIsNeedToFastForwardSequences(context.Background())
 }
 

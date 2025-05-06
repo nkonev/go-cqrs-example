@@ -60,7 +60,7 @@ func RunReset() {
 			internal.RunResetPartitions,
 			internal.RunMigrations,
 			internal.RunCreateTopic,
-			internal.SetIsNeedSetSequences,
+			internal.SetIsNeedToFastForwardSequences,
 			internal.Shutdown,
 		),
 	)
