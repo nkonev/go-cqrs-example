@@ -318,21 +318,13 @@ func RunResetPartitions(
 	}
 	defer offsetManager.Close()
 
-	pms := make([]sarama.PartitionOffsetManager, cfg.KafkaConfig.NumPartitions)
 	for i := range cfg.KafkaConfig.NumPartitions {
 		partitionManager, mpErr := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
 		if mpErr != nil {
 			return mpErr
 		}
-		pms[i] = partitionManager
-	}
-
-	for _, partitionManager := range pms {
+		defer partitionManager.AsyncClose() // faster
 		partitionManager.ResetOffset(0, "")
-	}
-
-	for _, partitionManager := range pms {
-		partitionManager.AsyncClose() // faster
 	}
 
 	slogLogger.Info("Finished reset partitions")
@@ -788,7 +780,7 @@ func isEndOnAllPartitions(
 		if err != nil {
 			return false, err
 		}
-		defer partitionManager.Close()
+		defer partitionManager.AsyncClose()
 
 		offs, _ := partitionManager.NextOffset()
 		if err != nil {
