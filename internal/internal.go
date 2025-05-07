@@ -94,17 +94,9 @@ type PostgreSQLConfig struct {
 	MigrationConfig    MigrationConfig `mapstructure:"migration"`
 }
 
-type SequenceFastForwardConfig struct {
-	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
-}
-
 type CqrsConfig struct {
-	SleepBeforeEvent time.Duration   `mapstructure:"sleepBeforeEvent"`
-	RestoringConfig  RestoringConfig `mapstructure:"restoring"`
-}
-
-type RestoringConfig struct {
-	SequenceFastForwardConfig SequenceFastForwardConfig `mapstructure:"sequenceFastForward"`
+	SleepBeforeEvent                time.Duration `mapstructure:"sleepBeforeEvent"`
+	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
 }
 
 type AppConfig struct {
@@ -646,106 +638,105 @@ func ConfigureSaramaClient(
 	return client, nil
 }
 
-func RunSequenceFastforwarder(
+func WaitForAllEventsProcessed(
 	slogLogger *slog.Logger,
-	commonProjection *CommonProjection,
 	cfg *AppConfig,
 	saramaClient sarama.Client,
-	db *DB,
 	lc fx.Lifecycle,
 ) error {
 	stoppingCtx, cancelFunc := context.WithCancel(context.Background())
 
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
-			slogLogger.Info("Stopping fast-forwarder")
+			slogLogger.Info("Stopping waiter")
 			cancelFunc()
 			return nil
 		},
 	})
 
-	ctx := context.Background()
-
-	du := cfg.CqrsConfig.RestoringConfig.SequenceFastForwardConfig.CheckAreEventsProcessedInterval
+	du := cfg.CqrsConfig.CheckAreEventsProcessedInterval
 
 	for {
-		slogLogger.Info("Attempting to fast-forward sequences")
-		txErr := Transact(ctx, db, func(tx *Tx) error {
-			xerr := commonProjection.SetXactFastForwardSequenceLock(ctx, tx)
-			if xerr != nil {
-				return xerr
-			}
-
-			stillNeedFastForwardSequences, gxerr := commonProjection.GetIsNeedToFastForwardSequences(ctx, tx)
-			if gxerr != nil {
-				return gxerr
-			}
-			if !stillNeedFastForwardSequences {
-				slogLogger.Info("Now is not need to fast-forward sequences")
-				cancelFunc()
-				return nil
-			}
-
-			slogLogger.Info("Checking for the current offsets will be equal to the latest ones for all partitions")
-			isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
-			if errE != nil {
-				slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
-				return errE
-			}
-			if isEnd {
-				errorsArr := []error{}
-
-				errI0 := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
-				if errI0 != nil {
-					slogLogger.Error("Error during setting message id sequences", "err", errI0)
-					errorsArr = append(errorsArr, errI0)
-				}
-
-				chatIds, errI1 := commonProjection.GetChatIds(ctx, tx) // TODO paginate
-				if errI1 != nil {
-					slogLogger.Error("Error during getting all chats", "err", errI1)
-					errorsArr = append(errorsArr, errI1)
-				}
-
-				for _, chatId := range chatIds {
-					errI2 := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, chatId)
-					if errI2 != nil {
-						slogLogger.Error("Error during setting message id sequences", "err", errI2)
-						errorsArr = append(errorsArr, errI2)
-					}
-				}
-
-				errU := commonProjection.UnsetIsNeedToFastForwardSequences(ctx, tx)
-				if errU != nil {
-					slogLogger.Error("Error during removing need fast-forward sequences", "err", errU)
-					errorsArr = append(errorsArr, errU)
-				}
-
-				if len(errorsArr) > 0 {
-					return errors.Join(errorsArr...)
-				}
-
-				slogLogger.Info("All the sequences was fast-forwarded successfully")
-				cancelFunc()
-
-				return nil
-			} else {
-				slogLogger.Info("The current offsets still aren't equal to the latest ones")
-			}
-
-			return nil
-		})
-		if txErr != nil {
-			return txErr
+		slogLogger.Info("Checking for the current offsets will be equal to the latest ones for all partitions")
+		isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
+		if errE != nil {
+			slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
+			return errE
+		}
+		if isEnd {
+			slogLogger.Info("All the events was processed")
+			cancelFunc()
+		} else {
+			slogLogger.Info("The current offsets still aren't equal to the latest ones")
 		}
 
 		if errors.Is(stoppingCtx.Err(), context.Canceled) {
-			slogLogger.Info("Exiting from fast-forwarder")
+			slogLogger.Info("Exiting from waiter")
 			break
 		} else {
 			slogLogger.Info("Will wait before the next check iteration", "duration", du)
 			time.Sleep(du)
 		}
+	}
+
+	return nil
+}
+
+func RunSequenceFastforwarder(
+	slogLogger *slog.Logger,
+	commonProjection *CommonProjection,
+	db *DB,
+) error {
+	ctx := context.Background()
+
+	slogLogger.Info("Attempting to fast-forward sequences")
+	txErr := Transact(ctx, db, func(tx *Tx) error {
+		xerr := commonProjection.SetXactFastForwardSequenceLock(ctx, tx)
+		if xerr != nil {
+			return xerr
+		}
+
+		stillNeedFastForwardSequences, gxerr := commonProjection.GetIsNeedToFastForwardSequences(ctx, tx)
+		if gxerr != nil {
+			return gxerr
+		}
+		if !stillNeedFastForwardSequences {
+			slogLogger.Info("Now is not need to fast-forward sequences")
+			return nil
+		}
+
+		errI0 := commonProjection.InitializeChatIdSequenceIfNeed(ctx, tx)
+		if errI0 != nil {
+			slogLogger.Error("Error during setting message id sequences", "err", errI0)
+			return errI0
+		}
+
+		chatIds, errI1 := commonProjection.GetChatIds(ctx, tx) // TODO paginate
+		if errI1 != nil {
+			slogLogger.Error("Error during getting all chats", "err", errI1)
+			return errI1
+		}
+
+		for _, chatId := range chatIds {
+			errI2 := commonProjection.InitializeMessageIdSequenceIfNeed(ctx, tx, chatId)
+			if errI2 != nil {
+				slogLogger.Error("Error during setting message id sequences", "err", errI2)
+				return errI2
+			}
+		}
+
+		errU := commonProjection.UnsetIsNeedToFastForwardSequences(ctx, tx)
+		if errU != nil {
+			slogLogger.Error("Error during removing need fast-forward sequences", "err", errU)
+			return errU
+		}
+
+		slogLogger.Info("All the sequences was fast-forwarded successfully")
+
+		return nil
+	})
+	if txErr != nil {
+		return txErr
 	}
 
 	return nil

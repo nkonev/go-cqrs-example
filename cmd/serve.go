@@ -66,6 +66,7 @@ func RunServe() {
 			internal.RunMigrations,
 			internal.RunCreateTopic,
 			internal.RunCqrsRouter,
+			internal.WaitForAllEventsProcessed,
 			internal.RunSequenceFastforwarder,
 			internal.RunHttpServer,
 		),

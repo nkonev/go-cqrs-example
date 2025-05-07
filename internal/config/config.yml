@@ -34,6 +34,4 @@ server:
 cqrs:
   # sleepBeforeEvent: 500ms
   sleepBeforeEvent: 0
-  restoring:
-    sequenceFastForward:
-      checkAreEventsProcessedInterval: 2s
+  checkAreEventsProcessedInterval: 2s
