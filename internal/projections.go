@@ -474,6 +474,19 @@ func (m *CommonProjection) GetMessageOwner(ctx context.Context, chatId, messageI
 	return ownerId, nil
 }
 
+func (m *CommonProjection) HasUnreadMessagesInChat(ctx context.Context, chatId, userId int64) (bool, error) {
+	r := m.db.QueryRowContext(ctx, "select exists(select * from unread_messages_user_view where (user_id, chat_id) = ($1, $2) and unread_messages > 0)", userId, chatId)
+	if r.Err() != nil {
+		return false, r.Err()
+	}
+	var has bool
+	err := r.Scan(&has)
+	if err != nil {
+		return false, err
+	}
+	return has, nil
+}
+
 type MessageViewDto struct {
 	Id      int64  `json:"id"`
 	OwnerId int64  `json:"ownerId"`

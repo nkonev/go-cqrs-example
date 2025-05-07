@@ -186,7 +186,17 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 	return messageId, err
 }
 
-func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface) error {
+func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
+
+	has, err := commonProjection.HasUnreadMessagesInChat(ctx, s.ChatId, s.ParticipantId)
+	if err != nil {
+		return err
+	}
+
+	if !has {
+		return nil
+	}
+
 	cp := &MessageReaded{
 		AdditionalData: s.AdditionalData,
 		ParticipantId:  s.ParticipantId,

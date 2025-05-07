@@ -1085,7 +1085,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			ParticipantId:  userId,
 		}
 
-		err = mr.Handle(g.Request.Context(), eventBus)
+		err = mr.Handle(g.Request.Context(), eventBus, commonProjection)
 		if err != nil {
 			LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageRead command", "err", err)
 			g.Status(http.StatusInternalServerError)
