@@ -373,7 +373,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 
 func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, participantIds []int64, chatId, messageId int64, noMessageIdSet bool) error {
 	_, err := tx.ExecContext(ctx, `
-		with existing_message_id as (
+		with existing_message as (
 			select (
 				case 
 					when $4 = true then 0
@@ -387,23 +387,14 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, partic
 				end
 			) as normalized_message_id
 		),
-		normalized_last_set_message as (
-			select 
-				us.user_id as user_id, 
-				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
-			from (select user_id, last_message_id from unread_messages_user_view v where v.user_id = any($1) and v.chat_id = $2) umuv 
-			right join (select unnest(cast ($1 as bigint[])) as user_id) us on umuv.user_id = us.user_id
+		normalized_user as (
+			select unnest(cast ($1 as bigint[])) as user_id
 		), 
 		normalized_given_message as (
 			select 
 				n.user_id,
-				case 
-					when ((select normalized_message_id from existing_message_id) >= n.normalized_last_message_id) 
-						THEN (select normalized_message_id from existing_message_id)
-					else n.normalized_last_message_id
-				end 
-				as normalized_message_id
-			from normalized_last_set_message n
+				(select normalized_message_id from existing_message) as normalized_message_id
+			from normalized_user n
 		),
 		input_data as (
 			select
@@ -484,17 +475,26 @@ func (m *CommonProjection) GetMessageOwner(ctx context.Context, chatId, messageI
 	return ownerId, nil
 }
 
-func (m *CommonProjection) HasUnreadMessagesInChat(ctx context.Context, chatId, userId int64) (bool, error) {
-	r := m.db.QueryRowContext(ctx, "select exists(select * from unread_messages_user_view where (user_id, chat_id) = ($1, $2) and unread_messages > 0)", userId, chatId)
+func (m *CommonProjection) GetLastMessageReaded(ctx context.Context, chatId, userId int64) (int64, bool, int64, error) {
+	r := m.db.QueryRowContext(ctx, `
+	select 
+	    um.last_message_id, 
+	    exists(select * from message m where m.chat_id = $2 and m.id = um.last_message_id),
+	    (select max(id) from message m where m.chat_id = $2)
+	from unread_messages_user_view um 
+    where (um.user_id, um.chat_id) = ($1, $2)
+	`, userId, chatId)
 	if r.Err() != nil {
-		return false, r.Err()
+		return 0, false, 0, r.Err()
 	}
+	var lastReadedMessageId int64
 	var has bool
-	err := r.Scan(&has)
+	var maxMessageId int64
+	err := r.Scan(&lastReadedMessageId, &has, &maxMessageId)
 	if err != nil {
-		return false, err
+		return 0, false, 0, err
 	}
-	return has, nil
+	return lastReadedMessageId, has, maxMessageId, nil
 }
 
 type MessageViewDto struct {
