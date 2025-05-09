@@ -88,6 +88,7 @@ func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface)
 	return eventBus.Publish(ctx, pa)
 }
 
+// TODO batching
 func (s *ParticipantRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
 	addParticipantErrors := []error{}
 	for _, participantId := range s.ParticipantIds {
@@ -188,6 +189,7 @@ func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface, co
 	return eventBus.Publish(ctx, cp)
 }
 
+// TODO batching
 func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
 
 	ownerId, err := commonProjection.GetMessageOwner(ctx, s.ChatId, s.MessageId)
