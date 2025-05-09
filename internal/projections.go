@@ -382,11 +382,13 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, partic
 				nu.user_id
 			from (
 				select
-					coalesce(
-						(select id as last_message_id from message m where m.chat_id = $2 and m.id = w.last_message_id),
-						(select max(id) as max from message m where m.chat_id = $2 and $5 = true),
-						0
-					) as last_message_id,
+					(case
+						when exists(select * from unread_messages_user_view uw where uw.chat_id = $2 and uw.user_id = w.user_id and uw.last_message_id > 0)
+						then coalesce(
+							(select id as last_message_id from message m where m.chat_id = $2 and m.id = w.last_message_id),
+							(select max(id) as max from message m where m.chat_id = $2 and $5 = true)
+						)
+					end) as last_message_id,
 					w.user_id
 				from unread_messages_user_view w 
 				where w.chat_id = $2 and w.user_id = any($1)

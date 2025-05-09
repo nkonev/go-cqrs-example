@@ -83,3 +83,24 @@ docker rm -f postgresql
 docker volume rm go-cqrs-example_postgres_data
 docker compose up -d postgresql
 ```
+
+# Testcase
+```bash
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message"}'
+curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
+curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [2, 3]}'
+curl -Ss -X GET --url 'http://localhost:8080/chat/1/participants' | jq
+curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
+curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
+curl -i -X PUT -H 'X-UserId: 2' --url 'http://localhost:8080/chat/1/message/1/read'
+curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
+curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 2"}'
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 3"}'
+curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
+curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
+curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/3'
+curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
+curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
+```
