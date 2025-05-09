@@ -202,14 +202,14 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 			select unnest(cast ($1 as bigint[])) as user_id
 		),
 		input_data as (
-			select c.id as chat_id, false as pinned, u.user_id as user_id, now() as updated_timestamp
+			select c.id as chat_id, false as pinned, u.user_id as user_id, cast ($3 as timestamp) as updated_timestamp
 			from user_input u
 			cross join (select cc.id from chat_common cc where cc.id = $2) c 
 		)
 		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
 			select chat_id, pinned, user_id, updated_timestamp from input_data
 		on conflict(user_id, id) do update set pinned = excluded.pinned, updated_timestamp = excluded.updated_timestamp
-	`, event.ParticipantIds, event.ChatId)
+	`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err
 		}
