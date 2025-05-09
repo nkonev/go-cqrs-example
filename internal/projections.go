@@ -183,7 +183,7 @@ func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId 
 
 func initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
 	_, err := tx.ExecContext(ctx, `
-		with normalized_last_message as (
+		with normalized_last_set_message as (
 			select 
 				us.user_id as user_id, 
 				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
@@ -194,11 +194,11 @@ func initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, pa
 			select
 				nlm.user_id as user_id,
 				cast ($2 as bigint) as chat_id,
-				(SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message n where n.user_id = nlm.user_id))
+				(SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_set_message n where n.user_id = nlm.user_id))
 					FROM message m
 					WHERE m.chat_id = $2) as unread_messages,
-				(SELECT normalized_last_message_id FROM normalized_last_message n where n.user_id = nlm.user_id) as last_message_id
-				from normalized_last_message nlm
+				nlm.normalized_last_message_id as last_message_id
+				from normalized_last_set_message nlm
 		)
 		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
 		select 
@@ -206,7 +206,7 @@ func initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, pa
 			idt.chat_id,
 			idt.unread_messages,
 			idt.last_message_id
-		    from input_data idt
+		from input_data idt
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
 	`, participantIds, chatId)
 	if err != nil {
@@ -407,7 +407,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
-func (m *CommonProjection) setUnreadMessages(ctx context.Context, participantId, chatId, messageId int64, noMessageIdSet bool) error {
+func (m *CommonProjection) setUnreadMessages(ctx context.Context, participantIds []int64, chatId, messageId int64, noMessageIdSet bool) error {
 	_, err := m.db.ExecContext(ctx, `
 		with existing_message_id as (
 			select (
@@ -423,28 +423,43 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, participantId,
 				end
 			) as normalized_message_id
 		),
-		last_set_unread_message_id as (
-			 select coalesce((select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2), 0) as last_message_id
-		),
+		normalized_last_set_message as (
+			select 
+				us.user_id as user_id, 
+				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
+			from (select user_id, last_message_id from unread_messages_user_view v where v.user_id = any($1) and v.chat_id = $2) umuv 
+			right join (select unnest(cast ($1 as bigint[])) as user_id) us on umuv.user_id = us.user_id
+		), 
 		normalized_given_message as (
 			select 
+				n.user_id,
 				case 
-					when ((select normalized_message_id from existing_message_id) >= (select last_message_id from last_set_unread_message_id)) 
+					when ((select normalized_message_id from existing_message_id) >= n.normalized_last_message_id) 
 						THEN (select normalized_message_id from existing_message_id)
-					else (select last_message_id from last_set_unread_message_id)
+					else n.normalized_last_message_id
 				end 
 				as normalized_message_id
+			from normalized_last_set_message n
+		),
+		input_data as (
+			select
+				ngm.user_id as user_id,
+				cast ($2 as bigint) as chat_id,
+				(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message n where n.user_id = ngm.user_id))
+					FROM message m
+					WHERE m.chat_id = $2) as unread_messages,
+				ngm.normalized_message_id as last_message_id
+			from normalized_given_message ngm
 		)
 		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
 		select 
-			$1, 
-			$2,
-			(SELECT count(m.id) FILTER(WHERE m.id > (select normalized_message_id from normalized_given_message))
-				FROM message m
-				WHERE m.chat_id = $2),
-			(select normalized_message_id from normalized_given_message)
+			idt.user_id,
+			idt.chat_id,
+			idt.unread_messages,
+			idt.last_message_id
+		from input_data idt
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, participantId, chatId, messageId, noMessageIdSet)
+	`, participantIds, chatId, messageId, noMessageIdSet)
 	return err
 }
 
@@ -452,7 +467,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	// actually it should be an update
 	// but we give a chance to create a row unread_messages_user_view in case lack of it
 	// so message read event has a self-healing effect
-	err := m.setUnreadMessages(ctx, event.ParticipantId, event.ChatId, event.MessageId, false)
+	err := m.setUnreadMessages(ctx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false)
 	if err != nil {
 		return fmt.Errorf("error during read messages: %w", err)
 	}
@@ -461,7 +476,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 }
 
 func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
-	err := m.setUnreadMessages(ctx, event.ParticipantId, event.ChatId, 0, true)
+	err := m.setUnreadMessages(ctx, []int64{event.ParticipantId}, event.ChatId, 0, true)
 	if err != nil {
 		return fmt.Errorf("error during refresh unread messages: %w", err)
 	}
