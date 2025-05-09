@@ -233,15 +233,15 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *ParticipantRemoved) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
 		_, err := tx.ExecContext(ctx, `
-		delete from chat_participant where (user_id, chat_id) = ($1, $2)
-	`, event.ParticipantId, event.ChatId)
+		delete from chat_participant where user_id = any($1) and chat_id = $2
+	`, event.ParticipantIds, event.ChatId)
 		if err != nil {
 			return err
 		}
 
 		_, err = tx.ExecContext(ctx, `
-		delete from chat_user_view where (id, user_id) = ($1, $2)
-	`, event.ChatId, event.ParticipantId)
+		delete from chat_user_view where user_id = any($1) and id = $2
+	`, event.ParticipantIds, event.ChatId)
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *Part
 
 	LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant removed from common chat",
-		"user_id", event.ParticipantId,
+		"user_id", event.ParticipantIds,
 		"chat_id", event.ChatId,
 	)
 
@@ -326,10 +326,10 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		participantIdsWithoutOwner := GetSliceWithout(event.MessageOwnerId, event.ParticipantIds)
+		participantIdsWithoutOwner := GetSliceWithout(event.OwnerId, event.ParticipantIds)
 		var ownerId *int64
-		if slices.Contains(event.ParticipantIds, event.MessageOwnerId) { // for batches without owner
-			ownerId = &event.MessageOwnerId
+		if slices.Contains(event.ParticipantIds, event.OwnerId) { // for batches without owner
+			ownerId = &event.OwnerId
 		}
 
 		// not owners

@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 )
 
@@ -88,26 +87,13 @@ func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface)
 	return eventBus.Publish(ctx, pa)
 }
 
-// TODO batching
 func (s *ParticipantRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
-	addParticipantErrors := []error{}
-	for _, participantId := range s.ParticipantIds {
-		pa := &ParticipantRemoved{
-			AdditionalData: s.AdditionalData,
-			ParticipantId:  participantId,
-			ChatId:         s.ChatId,
-		}
-		err := eventBus.Publish(ctx, pa)
-		if err != nil {
-			addParticipantErrors = append(addParticipantErrors, err)
-		}
+	pa := &ParticipantRemoved{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: s.ParticipantIds,
+		ChatId:         s.ChatId,
 	}
-
-	if len(addParticipantErrors) > 0 {
-		return errors.Join(addParticipantErrors...)
-	}
-
-	return nil
+	return eventBus.Publish(ctx, pa)
 }
 
 func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error {
@@ -148,7 +134,7 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		ParticipantIds: participantIds,
 		ChatId:         s.ChatId,
 		IncreaseOn:     1,
-		MessageOwnerId: s.OwnerId,
+		OwnerId:        s.OwnerId,
 	}
 
 	err = eventBus.Publish(ctx, ui)

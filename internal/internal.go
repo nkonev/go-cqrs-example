@@ -44,7 +44,6 @@ const LogFieldTraceId = "trace_id"
 // TODO draw the last message in user's chat view
 // TODO blog (title, short_description, full_description)
 // TODO participantsCount
-// TODO try a separate goroutine with a periodic "offset end" checking for a more fast fast-forwarding of  sequences
 type KafkaConfig struct {
 	BootstrapServers    []string            `mapstructure:"bootstrapServers"`
 	Topic               string              `mapstructure:"topic"`

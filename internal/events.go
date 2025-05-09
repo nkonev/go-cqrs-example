@@ -22,7 +22,7 @@ type ParticipantsAdded struct {
 
 type ParticipantRemoved struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
-	ParticipantId  int64           `json:"participantId"`
+	ParticipantIds []int64         `json:"participantIds"`
 	ChatId         int64           `json:"chatId"`
 }
 
@@ -46,7 +46,7 @@ type UnreadMessageIncreased struct {
 	ParticipantIds []int64         `json:"participantIds"`
 	ChatId         int64           `json:"chatId"`
 	IncreaseOn     int             `json:"increaseOn"`
-	MessageOwnerId int64           `json:"messageOwnerId"`
+	OwnerId        int64           `json:"ownerId"` // owner of message
 }
 
 type UnreadMessageRefreshed struct {
