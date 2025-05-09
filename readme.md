@@ -54,12 +54,6 @@ curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
 curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/1'
 
 # reset offsets for consumer groups
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
-# reset db
-docker rm -f postgresql
-docker volume rm go-cqrs-example_postgres_data
-docker compose up -d postgresql
-# ... or via
 go run . reset
 ```
 
@@ -81,4 +75,12 @@ docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstra
 
 # see kafka topic
 docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic events --from-beginning --property print.key=true --property print.headers=true
+
+# non-actual resetting - missed fast-forwarding of sequences
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
+# reset db
+docker rm -f postgresql
+docker volume rm go-cqrs-example_postgres_data
+docker compose up -d postgresql
+# ... or via
 ```
