@@ -759,6 +759,18 @@ func isEndOnAllPartitions(
 		slogLogger.Info("Got max", "partition", i, "offset", offset)
 	}
 
+	// check are all 0
+	allZero := true
+	for p := range maxOffsets {
+		if maxOffsets[p] != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return true, nil
+	}
+
 	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, client)
 	if err != nil {
 		return false, err
