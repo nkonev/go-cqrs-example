@@ -448,7 +448,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 
 func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, 0, true)
+		return m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true)
 	})
 
 	if errOuter != nil {

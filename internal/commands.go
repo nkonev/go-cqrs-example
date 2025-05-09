@@ -189,7 +189,6 @@ func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface, co
 	return eventBus.Publish(ctx, cp)
 }
 
-// TODO batching
 func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
 
 	ownerId, err := commonProjection.GetMessageOwner(ctx, s.ChatId, s.MessageId)
@@ -216,20 +215,10 @@ func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, 
 		return err
 	}
 
-	refreshUnreadMessagesErrors := []error{}
-	for _, participantId := range participantIds {
-		ui := &UnreadMessageRefreshed{
-			AdditionalData: s.AdditionalData,
-			ParticipantId:  participantId,
-			ChatId:         s.ChatId,
-		}
-		err = eventBus.Publish(ctx, ui)
-		if err != nil {
-			refreshUnreadMessagesErrors = append(refreshUnreadMessagesErrors, err)
-		}
+	ui := &UnreadMessageRefreshed{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: participantIds,
+		ChatId:         s.ChatId,
 	}
-	if len(refreshUnreadMessagesErrors) > 0 {
-		return errors.Join(refreshUnreadMessagesErrors...)
-	}
-	return nil
+	return eventBus.Publish(ctx, ui)
 }

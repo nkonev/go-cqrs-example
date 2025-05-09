@@ -51,7 +51,7 @@ type UnreadMessageIncreased struct {
 
 type UnreadMessageRefreshed struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
-	ParticipantId  int64           `json:"participantId"`
+	ParticipantIds []int64         `json:"participantIds"`
 	ChatId         int64           `json:"chatId"`
 }
 
