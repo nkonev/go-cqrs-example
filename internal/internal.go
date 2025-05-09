@@ -39,8 +39,9 @@ import (
 const TRACE_RESOURCE = "chat-cqrs-example"
 const LogFieldTraceId = "trace_id"
 
-// TODO change chat
-// TODO delete chat
+// TODO change chat -> change blog if need
+// TODO delete chat -> delete blog if need
+// TODO change message -> change blog if need
 // TODO draw the last message in user's chat view
 // TODO blog (title, short_description, full_description)
 // TODO participantsCount
