@@ -177,43 +177,12 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
-func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId int64) error {
-	return initializeMessageUnreadMultipleParticipants(ctx, tx, []int64{participantId}, chatId)
+func (m *CommonProjection) initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId int64) error {
+	return m.initializeMessageUnreadMultipleParticipants(ctx, tx, []int64{participantId}, chatId)
 }
 
-func initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
-	_, err := tx.ExecContext(ctx, `
-		with normalized_last_set_message as (
-			select 
-				us.user_id as user_id, 
-				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
-			from (select user_id, last_message_id from unread_messages_user_view v where v.user_id = any($1) and v.chat_id = $2) umuv 
-			right join (select unnest(cast ($1 as bigint[])) as user_id) us on umuv.user_id = us.user_id
-		), 
-		input_data as (
-			select
-				nlm.user_id as user_id,
-				cast ($2 as bigint) as chat_id,
-				(SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_set_message n where n.user_id = nlm.user_id))
-					FROM message m
-					WHERE m.chat_id = $2) as unread_messages,
-				nlm.normalized_last_message_id as last_message_id
-				from normalized_last_set_message nlm
-		)
-		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
-		select 
-			idt.user_id,
-			idt.chat_id,
-			idt.unread_messages,
-			idt.last_message_id
-		from input_data idt
-		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, participantIds, chatId)
-	if err != nil {
-		return err
-	}
-
-	return nil
+func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
+	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true)
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantsAdded) error {
@@ -249,7 +218,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		}
 
 		// recalc in case an user was added after
-		return initializeMessageUnreadMultipleParticipants(ctx, tx, event.ParticipantIds, event.ChatId)
+		return m.initializeMessageUnreadMultipleParticipants(ctx, tx, event.ParticipantIds, event.ChatId)
 	})
 	if errOuter != nil {
 		return errOuter
@@ -376,7 +345,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 			}
 
 			if affected == 0 {
-				err = initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
+				err = m.initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
 				if err != nil {
 					return err
 				}
@@ -407,8 +376,8 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
-func (m *CommonProjection) setUnreadMessages(ctx context.Context, participantIds []int64, chatId, messageId int64, noMessageIdSet bool) error {
-	_, err := m.db.ExecContext(ctx, `
+func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, participantIds []int64, chatId, messageId int64, noMessageIdSet bool) error {
+	_, err := tx.ExecContext(ctx, `
 		with existing_message_id as (
 			select (
 				case 
@@ -467,18 +436,23 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	// actually it should be an update
 	// but we give a chance to create a row unread_messages_user_view in case lack of it
 	// so message read event has a self-healing effect
-	err := m.setUnreadMessages(ctx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false)
-	if err != nil {
-		return fmt.Errorf("error during read messages: %w", err)
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false)
+	})
+	if errOuter != nil {
+		return fmt.Errorf("error during read messages: %w", errOuter)
 	}
 
 	return nil
 }
 
 func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
-	err := m.setUnreadMessages(ctx, []int64{event.ParticipantId}, event.ChatId, 0, true)
-	if err != nil {
-		return fmt.Errorf("error during refresh unread messages: %w", err)
+	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, 0, true)
+	})
+
+	if errOuter != nil {
+		return fmt.Errorf("error during refresh unread messages: %w", errOuter)
 	}
 
 	return nil
