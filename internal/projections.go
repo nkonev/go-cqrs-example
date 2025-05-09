@@ -377,15 +377,18 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, partic
 			select unnest(cast ($1 as bigint[])) as user_id
 		),
 		last_message as (
-			select
+			select 
 				coalesce(ww.last_message_id, 0) as last_message_id,
 				nu.user_id
-			from ( 
-				select (
-					(select id from message where chat_id = $2 and id = w.last_message_id)
-				) as last_message_id,
-				w.user_id 
-				from unread_messages_user_view w where chat_id = $2 and user_id = any($1)
+			from (
+				select
+					coalesce(
+						(select id as last_message_id from message m where m.chat_id = $2 and m.id = w.last_message_id),
+						0
+					) as last_message_id,
+					w.user_id
+				from unread_messages_user_view w 
+				where w.chat_id = $2 and w.user_id = any($1)
 			) ww
 			right join normalized_user nu on ww.user_id = nu.user_id
 		),
@@ -399,10 +402,10 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, partic
 		normalized_given_message as (
 			select 
 				n.user_id,
-				case 
+				(case 
 					when $4 = true then (select l.last_message_id from last_message l where l.user_id = n.user_id)
-					else (select normalized_message_id from existing_message) as normalized_message_id
-				end
+					else (select normalized_message_id from existing_message) 
+				end) as normalized_message_id
 			from normalized_user n
 		),
 		input_data as (
