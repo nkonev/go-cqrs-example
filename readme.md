@@ -82,5 +82,4 @@ docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstra
 docker rm -f postgresql
 docker volume rm go-cqrs-example_postgres_data
 docker compose up -d postgresql
-# ... or via
 ```
