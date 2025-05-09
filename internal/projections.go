@@ -204,7 +204,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		input_data as (
 			select c.id as chat_id, false as pinned, u.user_id as user_id, c.updated_timestamp as updated_timestamp
 			from user_input u
-			cross join chat_common c where c.id = $2
+			cross join (select cc.id, cc.updated_timestamp from chat_common cc where cc.id = $2) c 
 		)
 		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
 			select chat_id, pinned, user_id, updated_timestamp from input_data
