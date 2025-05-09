@@ -5,8 +5,7 @@ create table chat_common(
     id bigint primary key,
     title varchar(512) not null,
     last_generated_message_id bigint not null default 0,
-    created_timestamp timestamp not null,
-    updated_timestamp timestamp not null
+    created_timestamp timestamp not null
 );
 
 -- partition by chat_id

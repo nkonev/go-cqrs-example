@@ -163,9 +163,9 @@ func (m *CommonProjection) SetXactFastForwardSequenceLock(ctx context.Context, t
 
 func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated) error {
 	_, err := m.db.ExecContext(ctx, `
-		insert into chat_common(id, title, created_timestamp, updated_timestamp) values ($1, $2, $3, $4)
-		on conflict(id) do update set title = excluded.title, created_timestamp = excluded.created_timestamp, updated_timestamp = excluded.updated_timestamp
-	`, event.ChatId, event.Title, event.AdditionalData.CreatedAt, event.AdditionalData.CreatedAt)
+		insert into chat_common(id, title, created_timestamp) values ($1, $2, $3)
+		on conflict(id) do update set title = excluded.title, created_timestamp = excluded.created_timestamp
+	`, event.ChatId, event.Title, event.AdditionalData.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -202,9 +202,9 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 			select unnest(cast ($1 as bigint[])) as user_id
 		),
 		input_data as (
-			select c.id as chat_id, false as pinned, u.user_id as user_id, c.updated_timestamp as updated_timestamp
+			select c.id as chat_id, false as pinned, u.user_id as user_id, now() as updated_timestamp
 			from user_input u
-			cross join (select cc.id, cc.updated_timestamp from chat_common cc where cc.id = $2) c 
+			cross join (select cc.id from chat_common cc where cc.id = $2) c 
 		)
 		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
 			select chat_id, pinned, user_id, updated_timestamp from input_data
