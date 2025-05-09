@@ -66,45 +66,26 @@ func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, db 
 		return 0, err
 	}
 
-	addParticipantErrors := []error{}
-	for _, participantId := range s.ParticipantIds {
-		pa := &ParticipantAdded{
-			AdditionalData: s.AdditionalData,
-			ParticipantId:  participantId,
-			ChatId:         chatId,
-		}
-		err = eventBus.Publish(ctx, pa)
-		if err != nil {
-			addParticipantErrors = append(addParticipantErrors, err)
-		}
+	pa := &ParticipantsAdded{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: s.ParticipantIds,
+		ChatId:         chatId,
 	}
-
-	if len(addParticipantErrors) > 0 {
-		return 0, errors.Join(addParticipantErrors...)
+	err = eventBus.Publish(ctx, pa)
+	if err != nil {
+		return 0, err
 	}
 
 	return chatId, nil
 }
 
 func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface) error {
-	addParticipantErrors := []error{}
-	for _, participantId := range s.ParticipantIds {
-		pa := &ParticipantAdded{
-			AdditionalData: s.AdditionalData,
-			ParticipantId:  participantId,
-			ChatId:         s.ChatId,
-		}
-		err := eventBus.Publish(ctx, pa)
-		if err != nil {
-			addParticipantErrors = append(addParticipantErrors, err)
-		}
+	pa := &ParticipantsAdded{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: s.ParticipantIds,
+		ChatId:         s.ChatId,
 	}
-
-	if len(addParticipantErrors) > 0 {
-		return errors.Join(addParticipantErrors...)
-	}
-
-	return nil
+	return eventBus.Publish(ctx, pa)
 }
 
 func (s *ParticipantRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
@@ -138,6 +119,7 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 	return eventBus.Publish(ctx, cp)
 }
 
+// TODO batching
 func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
 	messageId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
 		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)

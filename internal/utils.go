@@ -24,16 +24,3 @@ func GetBoolean(s string) bool {
 		return parseBool
 	}
 }
-
-func GetIndexOf(ids []int64, elem int64) int {
-	for i := 0; i < len(ids); i++ {
-		if ids[i] == elem {
-			return i
-		}
-	}
-	return -1
-}
-
-func Contains(ids []int64, elem int64) bool {
-	return GetIndexOf(ids, elem) != -1
-}

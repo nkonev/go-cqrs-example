@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -40,7 +41,6 @@ const LogFieldTraceId = "trace_id"
 
 // TODO change chat
 // TODO delete chat
-// TODO consider batching for adding participants - try to generate multiple tuples in values via scany
 // TODO draw the last message in user's chat view
 // TODO blog (title, short_description, full_description)
 // TODO participantsCount
@@ -851,7 +851,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus E
 			ParticipantIds: ccd.ParticipantIds,
 		}
 
-		if !Contains(cc.ParticipantIds, userId) {
+		if !slices.Contains(cc.ParticipantIds, userId) {
 			cc.ParticipantIds = append(cc.ParticipantIds, userId)
 		}
 

@@ -178,23 +178,37 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 }
 
 func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId int64) error {
+	return initializeMessageUnreadMultipleParticipants(ctx, tx, []int64{participantId}, chatId)
+}
+
+func initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
 	_, err := tx.ExecContext(ctx, `
 		with normalized_last_message as (
-		    select coalesce(
-				(select last_message_id from unread_messages_user_view where user_id = $1 and chat_id = $2),
-		        0
-		    ) as normalized_last_message_id
+			select 
+				us.user_id as user_id, 
+				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
+			from (select user_id, last_message_id from unread_messages_user_view v where v.user_id = any($1) and v.chat_id = $2) umuv 
+			right join (select unnest(cast ($1 as bigint[])) as user_id) us on umuv.user_id = us.user_id
+		), 
+		input_data as (
+			select
+				nlm.user_id as user_id,
+				cast ($2 as bigint) as chat_id,
+				(SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message n where n.user_id = nlm.user_id))
+					FROM message m
+					WHERE m.chat_id = $2) as unread_messages,
+				(SELECT normalized_last_message_id FROM normalized_last_message n where n.user_id = nlm.user_id) as last_message_id
+				from normalized_last_message nlm
 		)
 		insert into unread_messages_user_view(user_id, chat_id, unread_messages, last_message_id)
 		select 
-		    $1, 
-		    $2,
-		    (SELECT count(m.id) FILTER(WHERE m.id > (SELECT normalized_last_message_id FROM normalized_last_message))
-				FROM message m
-				WHERE m.chat_id = $2),
-		    (SELECT normalized_last_message_id FROM normalized_last_message)
+			idt.user_id,
+			idt.chat_id,
+			idt.unread_messages,
+			idt.last_message_id
+		    from input_data idt
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, participantId, chatId)
+	`, participantIds, chatId)
 	if err != nil {
 		return err
 	}
@@ -202,28 +216,40 @@ func initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId 
 	return nil
 }
 
-func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantAdded) error {
+func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantsAdded) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
 		_, err := tx.ExecContext(ctx, `
-		insert into chat_participant(user_id, chat_id) values ($1, $2)
+		with input_data as (
+			select unnest(cast ($1 as bigint[])) as user_id, cast ($2 as bigint) as chat_id
+		)
+		insert into chat_participant(user_id, chat_id)
+		select user_id, chat_id from input_data
 		on conflict(user_id, chat_id) do nothing
-	`, event.ParticipantId, event.ChatId)
+	`, event.ParticipantIds, event.ChatId)
 		if err != nil {
 			return err
 		}
 
 		// because we select chat_common, inserted from this consumer group in ChatCreated handler
 		_, err = tx.ExecContext(ctx, `
+		with user_input as (
+			select unnest(cast ($1 as bigint[])) as user_id
+		),
+		input_data as (
+			select c.id as chat_id, false as pinned, u.user_id as user_id, c.updated_timestamp as updated_timestamp
+			from user_input u
+			cross join chat_common c where c.id = $2
+		)
 		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
-			select id, false, $2, updated_timestamp from chat_common where id = $1
+			select chat_id, pinned, user_id, updated_timestamp from input_data
 		on conflict(user_id, id) do update set pinned = excluded.pinned, updated_timestamp = excluded.updated_timestamp
-	`, event.ChatId, event.ParticipantId)
+	`, event.ParticipantIds, event.ChatId)
 		if err != nil {
 			return err
 		}
 
 		// recalc in case an user was added after
-		return initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
+		return initializeMessageUnreadMultipleParticipants(ctx, tx, event.ParticipantIds, event.ChatId)
 	})
 	if errOuter != nil {
 		return errOuter
@@ -231,7 +257,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 
 	LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant added into common chat",
-		"user_id", event.ParticipantId,
+		"user_id", event.ParticipantIds,
 		"chat_id", event.ChatId,
 	)
 
