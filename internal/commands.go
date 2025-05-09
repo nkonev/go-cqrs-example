@@ -147,22 +147,28 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 
 func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
 
-	has, err := commonProjection.HasUnreadMessagesInChat(ctx, s.ChatId, s.ParticipantId)
+	lastMessageReadedId, lastMessgeReadedExists, maxMessageId, err := commonProjection.GetLastMessageReaded(ctx, s.ChatId, s.ParticipantId)
 	if err != nil {
 		return err
 	}
 
-	if !has {
-		return nil
+	messageIdToMark := s.MessageId
+
+	if s.MessageId > maxMessageId {
+		messageIdToMark = maxMessageId
 	}
 
-	cp := &MessageReaded{
-		AdditionalData: s.AdditionalData,
-		ParticipantId:  s.ParticipantId,
-		ChatId:         s.ChatId,
-		MessageId:      s.MessageId,
+	if (lastMessgeReadedExists && messageIdToMark > lastMessageReadedId) || (!lastMessgeReadedExists && lastMessageReadedId == 0) {
+		cp := &MessageReaded{
+			AdditionalData: s.AdditionalData,
+			ParticipantId:  s.ParticipantId,
+			ChatId:         s.ChatId,
+			MessageId:      messageIdToMark,
+		}
+		return eventBus.Publish(ctx, cp)
 	}
-	return eventBus.Publish(ctx, cp)
+
+	return nil
 }
 
 func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {

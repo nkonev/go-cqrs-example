@@ -179,7 +179,7 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 }
 
 func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
-	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true)
+	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true, false)
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantsAdded) error {
@@ -371,39 +371,45 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
-func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, participantIds []int64, chatId, messageId int64, noMessageIdSet bool) error {
+func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, participantIds []int64, chatId, messageId int64, needSet, needRefresh bool) error {
 	_, err := tx.ExecContext(ctx, `
-		with existing_message_id as (
-			select (
-				case 
-					when $4 = true then 0
-					else (
-						select coalesce(
-							(select id from message where chat_id = $2 and id = $3),
-							(select max(id) as max from message where chat_id = $2),
-							0
+		with normalized_user as (
+			select unnest(cast ($1 as bigint[])) as user_id
+		),
+		last_message as (
+			select 
+				coalesce(ww.last_message_id, 0) as last_message_id,
+				nu.user_id
+			from (
+				select
+					(case
+						when exists(select * from unread_messages_user_view uw where uw.chat_id = $2 and uw.user_id = w.user_id and uw.last_message_id > 0)
+						then coalesce(
+							(select id as last_message_id from message m where m.chat_id = $2 and m.id = w.last_message_id),
+							(select max(id) as max from message m where m.chat_id = $2 and $5 = true)
 						)
-					)
-				end
+					end) as last_message_id,
+					w.user_id
+				from unread_messages_user_view w 
+				where w.chat_id = $2 and w.user_id = any($1)
+			) ww
+			right join normalized_user nu on ww.user_id = nu.user_id
+		),
+		existing_message as (
+			select coalesce(
+				(select id from message where chat_id = $2 and id = $3),
+				(select max(id) as max from message where chat_id = $2),
+				0
 			) as normalized_message_id
 		),
-		normalized_last_set_message as (
-			select 
-				us.user_id as user_id, 
-				coalesce(umuv.last_message_id, 0) as normalized_last_message_id 
-			from (select user_id, last_message_id from unread_messages_user_view v where v.user_id = any($1) and v.chat_id = $2) umuv 
-			right join (select unnest(cast ($1 as bigint[])) as user_id) us on umuv.user_id = us.user_id
-		), 
 		normalized_given_message as (
 			select 
 				n.user_id,
-				case 
-					when ((select normalized_message_id from existing_message_id) >= n.normalized_last_message_id) 
-						THEN (select normalized_message_id from existing_message_id)
-					else n.normalized_last_message_id
-				end 
-				as normalized_message_id
-			from normalized_last_set_message n
+				(case 
+					when $4 = true then (select l.last_message_id from last_message l where l.user_id = n.user_id)
+					else (select normalized_message_id from existing_message) 
+				end) as normalized_message_id
+			from normalized_user n
 		),
 		input_data as (
 			select
@@ -423,7 +429,7 @@ func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, partic
 			idt.last_message_id
 		from input_data idt
 		on conflict (user_id, chat_id) do update set unread_messages = excluded.unread_messages, last_message_id = excluded.last_message_id
-	`, participantIds, chatId, messageId, noMessageIdSet)
+	`, participantIds, chatId, messageId, needSet, needRefresh)
 	return err
 }
 
@@ -432,7 +438,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	// but we give a chance to create a row unread_messages_user_view in case lack of it
 	// so message read event has a self-healing effect
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false)
+		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false, false)
 	})
 	if errOuter != nil {
 		return fmt.Errorf("error during read messages: %w", errOuter)
@@ -443,7 +449,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 
 func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		return m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true)
+		return m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true, true)
 	})
 
 	if errOuter != nil {
@@ -484,17 +490,26 @@ func (m *CommonProjection) GetMessageOwner(ctx context.Context, chatId, messageI
 	return ownerId, nil
 }
 
-func (m *CommonProjection) HasUnreadMessagesInChat(ctx context.Context, chatId, userId int64) (bool, error) {
-	r := m.db.QueryRowContext(ctx, "select exists(select * from unread_messages_user_view where (user_id, chat_id) = ($1, $2) and unread_messages > 0)", userId, chatId)
+func (m *CommonProjection) GetLastMessageReaded(ctx context.Context, chatId, userId int64) (int64, bool, int64, error) {
+	r := m.db.QueryRowContext(ctx, `
+	select 
+	    um.last_message_id, 
+	    exists(select * from message m where m.chat_id = $2 and m.id = um.last_message_id),
+	    (select max(id) from message m where m.chat_id = $2)
+	from unread_messages_user_view um 
+    where (um.user_id, um.chat_id) = ($1, $2)
+	`, userId, chatId)
 	if r.Err() != nil {
-		return false, r.Err()
+		return 0, false, 0, r.Err()
 	}
+	var lastReadedMessageId int64
 	var has bool
-	err := r.Scan(&has)
+	var maxMessageId int64
+	err := r.Scan(&lastReadedMessageId, &has, &maxMessageId)
 	if err != nil {
-		return false, err
+		return 0, false, 0, err
 	}
-	return has, nil
+	return lastReadedMessageId, has, maxMessageId, nil
 }
 
 type MessageViewDto struct {
