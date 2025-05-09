@@ -120,7 +120,6 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 	return eventBus.Publish(ctx, cp)
 }
 
-// TODO batching
 func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
 	messageId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
 		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)
@@ -144,26 +143,17 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		return 0, err
 	}
 
-	increaseUnreadMessagesErrors := []error{}
-	for _, participantId := range participantIds {
-		ui := &UnreadMessageIncreased{
-			AdditionalData: s.AdditionalData,
-			ParticipantId:  participantId,
-			ChatId:         s.ChatId,
-			IncreaseOn:     1,
-		}
-		if participantId == s.OwnerId {
-			ui.IncreaseOn = 0
-			ui.IsMessageOwner = true
-		}
-
-		err = eventBus.Publish(ctx, ui)
-		if err != nil {
-			increaseUnreadMessagesErrors = append(increaseUnreadMessagesErrors, err)
-		}
+	ui := &UnreadMessageIncreased{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: participantIds,
+		ChatId:         s.ChatId,
+		IncreaseOn:     1,
+		MessageOwnerId: s.OwnerId,
 	}
-	if len(increaseUnreadMessagesErrors) > 0 {
-		return 0, errors.Join(increaseUnreadMessagesErrors...)
+
+	err = eventBus.Publish(ctx, ui)
+	if err != nil {
+		return 0, err
 	}
 
 	return messageId, err

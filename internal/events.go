@@ -43,10 +43,10 @@ type MessageCreated struct {
 
 type UnreadMessageIncreased struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
-	ParticipantId  int64           `json:"participantId"`
+	ParticipantIds []int64         `json:"participantIds"`
 	ChatId         int64           `json:"chatId"`
 	IncreaseOn     int             `json:"increaseOn"`
-	IsMessageOwner bool            `json:"isMessageOwner"`
+	MessageOwnerId int64           `json:"messageOwnerId"`
 }
 
 type UnreadMessageRefreshed struct {

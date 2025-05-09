@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 )
 
 type CommonProjection struct {
@@ -177,10 +178,6 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
-func (m *CommonProjection) initializeMessageUnread(ctx context.Context, tx *Tx, participantId, chatId int64) error {
-	return m.initializeMessageUnreadMultipleParticipants(ctx, tx, []int64{participantId}, chatId)
-}
-
 func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
 	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true)
 }
@@ -329,41 +326,39 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
 	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		if !event.IsMessageOwner {
-			r, err := tx.ExecContext(ctx, `
+		participantIdsWithoutOwner := GetSliceWithout(event.MessageOwnerId, event.ParticipantIds)
+		var ownerId *int64
+		if slices.Contains(event.ParticipantIds, event.MessageOwnerId) { // for batches without owner
+			ownerId = &event.MessageOwnerId
+		}
+
+		// not owners
+		if len(participantIdsWithoutOwner) > 0 {
+			_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET unread_messages = unread_messages + $3
-				WHERE (user_id, chat_id) = ($1, $2);
-			`, event.ParticipantId, event.ChatId, event.IncreaseOn)
+				WHERE user_id = any($1) and chat_id = $2;
+			`, participantIdsWithoutOwner, event.ChatId, event.IncreaseOn)
 			if err != nil {
 				return fmt.Errorf("error during increasing unread messages: %w", err)
 			}
+		}
 
-			affected, err := r.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("error during increasing unread messages: %w", err)
-			}
-
-			if affected == 0 {
-				err = m.initializeMessageUnread(ctx, tx, event.ParticipantId, event.ChatId)
-				if err != nil {
-					return err
-				}
-			}
-		} else {
+		// owner
+		if ownerId != nil {
 			_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET last_message_id = (select max(id) from message where chat_id = $2)
 				WHERE (user_id, chat_id) = ($1, $2);
-			`, event.ParticipantId, event.ChatId)
+			`, *ownerId, event.ChatId)
 			if err != nil {
 				return fmt.Errorf("error during increasing unread messages: %w", err)
 			}
 		}
 
 		_, err := tx.ExecContext(ctx, `
-			update chat_user_view set updated_timestamp = $3 where (user_id, id) = ($1, $2)
-		`, event.ParticipantId, event.ChatId, event.AdditionalData.CreatedAt)
+			update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
+		`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err
 		}

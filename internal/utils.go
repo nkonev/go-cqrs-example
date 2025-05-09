@@ -24,3 +24,13 @@ func GetBoolean(s string) bool {
 		return parseBool
 	}
 }
+
+func GetSliceWithout(exception int64, inputData []int64) []int64 {
+	ret := []int64{}
+	for _, v := range inputData {
+		if v != exception {
+			ret = append(ret, v)
+		}
+	}
+	return ret
+}
