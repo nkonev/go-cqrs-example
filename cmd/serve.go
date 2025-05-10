@@ -7,7 +7,12 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/internal"
+	"main.go/config"
+	"main.go/cqrs"
+	"main.go/db"
+	"main.go/handlers"
+	"main.go/kafka"
+	"main.go/otel"
 	"os"
 )
 
@@ -45,30 +50,30 @@ func RunServe() {
 	appFx := fx.New(
 		fx.Supply(slogLogger),
 		fx.Provide(
-			internal.CreateTypedConfig,
-			internal.ConfigureTracePropagator,
-			internal.ConfigureTraceProvider,
-			internal.ConfigureTraceExporter,
-			internal.ConfigureDatabase,
-			internal.ConfigureKafkaAdmin,
-			internal.ConfigureKafkaMarshaller,
-			internal.ConfigureWatermillLogger,
-			internal.ConfigurePublisher,
-			internal.ConfigureCqrsRouter,
-			internal.ConfigureCqrsMarshaller,
-			internal.ConfigureEventBus,
-			internal.ConfigureEventProcessor,
-			internal.ConfigureCommonProjection,
-			internal.ConfigureHttpServer,
-			internal.ConfigureSaramaClient,
+			config.CreateTypedConfig,
+			otel.ConfigureTracePropagator,
+			otel.ConfigureTraceProvider,
+			otel.ConfigureTraceExporter,
+			db.ConfigureDatabase,
+			kafka.ConfigureKafkaAdmin,
+			cqrs.ConfigureKafkaMarshaller,
+			cqrs.ConfigureWatermillLogger,
+			cqrs.ConfigurePublisher,
+			cqrs.ConfigureCqrsRouter,
+			cqrs.ConfigureCqrsMarshaller,
+			cqrs.ConfigureEventBus,
+			cqrs.ConfigureEventProcessor,
+			cqrs.ConfigureCommonProjection,
+			handlers.ConfigureHttpServer,
+			kafka.ConfigureSaramaClient,
 		),
 		fx.Invoke(
-			internal.RunMigrations,
-			internal.RunCreateTopic,
-			internal.RunCqrsRouter,
-			internal.WaitForAllEventsProcessed,
-			internal.RunSequenceFastforwarder,
-			internal.RunHttpServer,
+			db.RunMigrations,
+			kafka.RunCreateTopic,
+			cqrs.RunCqrsRouter,
+			kafka.WaitForAllEventsProcessed,
+			cqrs.RunSequenceFastforwarder,
+			handlers.RunHttpServer,
 		),
 	)
 	appFx.Run()

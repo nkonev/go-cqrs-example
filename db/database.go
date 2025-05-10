@@ -1,15 +1,20 @@
-package internal
+package db
 
 import (
 	"context"
 	"database/sql"
 	"embed"
 	"fmt"
+	"github.com/XSAM/otelsql"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	_ "github.com/jackc/pgx/v4/stdlib"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
+	"go.uber.org/fx"
 	"log/slog"
+	"main.go/config"
 	"net/http"
 )
 
@@ -106,10 +111,55 @@ func Transact(ctx context.Context, db *DB, txFunc func(*Tx) error) (err error) {
 	return err
 }
 
+func ConfigureDatabase(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	tp *sdktrace.TracerProvider,
+	lc fx.Lifecycle,
+) (*DB, error) {
+
+	db, err := otelsql.Open("pgx", cfg.PostgreSQLConfig.Url, otelsql.WithAttributes(
+		semconv.DBSystemPostgreSQL,
+	))
+	if err != nil {
+		return nil, err
+	}
+	err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
+		semconv.DBSystemPostgreSQL,
+	), otelsql.WithTracerProvider(tp))
+	if err != nil {
+		return nil, err
+	}
+	db.SetConnMaxLifetime(cfg.PostgreSQLConfig.MaxLifetime)
+	db.SetMaxIdleConns(cfg.PostgreSQLConfig.MaxIdleConnections)
+	db.SetMaxOpenConns(cfg.PostgreSQLConfig.MaxOpenConnections)
+	err = db.Ping()
+	if err != nil {
+		return nil, err
+	}
+
+	dbWrapper := &DB{
+		DB:  db,
+		lgr: slogLogger,
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			slogLogger.Info("Stopping database")
+			if err := db.Close(); err != nil {
+				slogLogger.Error("Error shutting down database", "err", err)
+			}
+			return nil
+		},
+	})
+
+	return dbWrapper, nil
+}
+
 //go:embed migrations
 var embeddedMigrationFiles embed.FS
 
-func (db *DB) Migrate(mc MigrationConfig) error {
+func (db *DB) Migrate(mc config.MigrationConfig) error {
 	db.lgr.Info("Starting migration")
 	staticDir := http.FS(embeddedMigrationFiles)
 	src, err := httpfs.New(staticDir, "migrations")
@@ -137,7 +187,7 @@ func (db *DB) Migrate(mc MigrationConfig) error {
 	return nil
 }
 
-func (db *DB) Reset(mc MigrationConfig) error {
+func (db *DB) Reset(mc config.MigrationConfig) error {
 	_, err := db.Exec(fmt.Sprintf(`
 	drop sequence if exists chat_id_sequence;
 	
@@ -154,4 +204,12 @@ func (db *DB) Reset(mc MigrationConfig) error {
 `, mc.MigrationTable))
 	db.lgr.Info("Recreating database", "err", err)
 	return err
+}
+
+func RunMigrations(db *DB, cfg *config.AppConfig) error {
+	return db.Migrate(cfg.PostgreSQLConfig.MigrationConfig)
+}
+
+func RunResetDatabase(db *DB, cfg *config.AppConfig) error {
+	return db.Reset(cfg.PostgreSQLConfig.MigrationConfig)
 }

@@ -1,8 +1,9 @@
-package internal
+package cqrs
 
 import (
 	"context"
 	"fmt"
+	"main.go/db"
 )
 
 type ChatCreate struct {
@@ -50,8 +51,8 @@ type MessageRead struct {
 	ParticipantId  int64
 }
 
-func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
-	chatId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
+func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, dba *db.DB, commonProjection *CommonProjection) (int64, error) {
+	chatId, err := db.TransactWithResult(ctx, dba, func(tx *db.Tx) (int64, error) {
 		return commonProjection.GetNextChatId(ctx, tx)
 	})
 
@@ -106,8 +107,8 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 	return eventBus.Publish(ctx, cp)
 }
 
-func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db *DB, commonProjection *CommonProjection) (int64, error) {
-	messageId, err := TransactWithResult(ctx, db, func(tx *Tx) (int64, error) {
+func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, dba *db.DB, commonProjection *CommonProjection) (int64, error) {
+	messageId, err := db.TransactWithResult(ctx, dba, func(tx *db.Tx) (int64, error) {
 		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)
 	})
 

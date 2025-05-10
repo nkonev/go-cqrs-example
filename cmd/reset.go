@@ -6,7 +6,12 @@ package cmd
 import (
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/internal"
+	"main.go/app"
+	"main.go/config"
+	"main.go/cqrs"
+	"main.go/db"
+	"main.go/kafka"
+	"main.go/otel"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -46,22 +51,22 @@ func RunReset() {
 	appFx := fx.New(
 		fx.Supply(slogLogger),
 		fx.Provide(
-			internal.CreateTypedConfig,
-			internal.ConfigureTracePropagator,
-			internal.ConfigureTraceProvider,
-			internal.ConfigureTraceExporter,
-			internal.ConfigureDatabase,
-			internal.ConfigureKafkaAdmin,
-			internal.ConfigureCommonProjection,
-			internal.ConfigureSaramaClient,
+			config.CreateTypedConfig,
+			otel.ConfigureTracePropagator,
+			otel.ConfigureTraceProvider,
+			otel.ConfigureTraceExporter,
+			db.ConfigureDatabase,
+			kafka.ConfigureKafkaAdmin,
+			cqrs.ConfigureCommonProjection,
+			kafka.ConfigureSaramaClient,
 		),
 		fx.Invoke(
-			internal.RunResetDatabase,
-			internal.RunResetPartitions,
-			internal.RunMigrations,
-			internal.RunCreateTopic,
-			internal.SetIsNeedToFastForwardSequences,
-			internal.Shutdown,
+			db.RunResetDatabase,
+			kafka.RunResetPartitions,
+			db.RunMigrations,
+			kafka.RunCreateTopic,
+			cqrs.SetIsNeedToFastForwardSequences,
+			app.Shutdown,
 		),
 	)
 	appFx.Run()

@@ -1,0 +1,232 @@
+package kafka
+
+import (
+	"context"
+	"errors"
+	"github.com/IBM/sarama"
+	"go.uber.org/fx"
+	"log/slog"
+	"main.go/config"
+	"time"
+)
+
+func ConfigureKafkaAdmin(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	lc fx.Lifecycle,
+) (sarama.ClusterAdmin, error) {
+	kafkaAdminConfig := sarama.NewConfig()
+	kafkaAdminConfig.Version = sarama.V4_0_0_0
+
+	kafkaAdmin, err := sarama.NewClusterAdmin(cfg.KafkaConfig.BootstrapServers, kafkaAdminConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			slogLogger.Info("Stopping kafka admin")
+
+			if err := kafkaAdmin.Close(); err != nil {
+				slogLogger.Error("Error shutting down kafka admin", "err", err)
+			}
+			return nil
+		},
+	})
+
+	return kafkaAdmin, nil
+}
+
+func RunCreateTopic(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	kafkaAdmin sarama.ClusterAdmin,
+) error {
+	retention := cfg.KafkaConfig.Retention
+	topicName := cfg.KafkaConfig.Topic
+	slogLogger.Info("Creating topic", "topic", topicName)
+
+	err := kafkaAdmin.CreateTopic(topicName, &sarama.TopicDetail{
+		NumPartitions:     cfg.KafkaConfig.NumPartitions,
+		ReplicationFactor: cfg.KafkaConfig.ReplicationFactor,
+		ConfigEntries: map[string]*string{
+			// https://kafka.apache.org/documentation/#topicconfigs_retention.ms
+			"retention.ms": &retention,
+		},
+	}, false)
+	if errors.Is(err, sarama.ErrTopicAlreadyExists) {
+		slogLogger.Info("Topic is already exists", "topic", topicName)
+	} else if err != nil {
+		return err
+	} else {
+		slogLogger.Info("Topic was successfully created", "topic", topicName)
+	}
+
+	return nil
+}
+
+func RunResetPartitions(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	saramaClient sarama.Client,
+) error {
+	slogLogger.Info("Start reset partitions")
+	config := sarama.NewConfig()
+	config.Version = sarama.V4_0_0_0
+
+	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, saramaClient)
+	if err != nil {
+		return err
+	}
+	defer offsetManager.Close()
+
+	for i := range cfg.KafkaConfig.NumPartitions {
+		partitionManager, mpErr := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
+		if mpErr != nil {
+			return mpErr
+		}
+		defer partitionManager.AsyncClose() // faster
+		partitionManager.ResetOffset(0, "")
+	}
+
+	slogLogger.Info("Finished reset partitions")
+
+	return nil
+}
+
+func ConfigureSaramaClient(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	lc fx.Lifecycle,
+) (sarama.Client, error) {
+	config := sarama.NewConfig()
+	config.Version = sarama.V4_0_0_0
+
+	client, err := sarama.NewClient(cfg.KafkaConfig.BootstrapServers, config)
+	if err != nil {
+		return nil, err
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx0 context.Context) error {
+			slogLogger.Info("Stopping kafka client")
+			ce := client.Close()
+			slogLogger.Info("Kafka client stopped", "err", ce)
+
+			return nil
+		},
+	})
+
+	return client, nil
+}
+
+func WaitForAllEventsProcessed(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	saramaClient sarama.Client,
+	lc fx.Lifecycle,
+) error {
+	stoppingCtx, cancelFunc := context.WithCancel(context.Background())
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			slogLogger.Info("Stopping waiter")
+			cancelFunc()
+			return nil
+		},
+	})
+
+	du := cfg.CqrsConfig.CheckAreEventsProcessedInterval
+
+	for {
+		slogLogger.Info("Checking for the current offsets will be equal to the latest ones for all partitions")
+		isEnd, errE := isEndOnAllPartitions(slogLogger, cfg, saramaClient)
+		if errE != nil {
+			slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
+			return errE
+		}
+		if isEnd {
+			slogLogger.Info("All the events was processed")
+			cancelFunc()
+		} else {
+			slogLogger.Info("The current offsets still aren't equal to the latest ones")
+		}
+
+		if errors.Is(stoppingCtx.Err(), context.Canceled) {
+			slogLogger.Info("Exiting from waiter")
+			break
+		} else {
+			slogLogger.Info("Will wait before the next check iteration", "duration", du)
+			time.Sleep(du)
+		}
+	}
+
+	return nil
+}
+
+func isEndOnAllPartitions(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	client sarama.Client,
+) (bool, error) {
+
+	maxOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
+
+	for i := range cfg.KafkaConfig.NumPartitions {
+		offset, err := client.GetOffset(cfg.KafkaConfig.Topic, i, sarama.OffsetNewest)
+		if err != nil {
+			return false, err
+		}
+		maxOffsets[i] = offset
+		slogLogger.Info("Got max", "partition", i, "offset", offset)
+	}
+
+	// check are all 0
+	allZero := true
+	for p := range maxOffsets {
+		if maxOffsets[p] != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return true, nil
+	}
+
+	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, client)
+	if err != nil {
+		return false, err
+	}
+	defer offsetManager.Close()
+
+	givenOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
+	for i := range cfg.KafkaConfig.NumPartitions {
+		partitionManager, err := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
+		if err != nil {
+			return false, err
+		}
+		defer partitionManager.AsyncClose()
+
+		offs, _ := partitionManager.NextOffset()
+		if err != nil {
+			return false, err
+		}
+		givenOffsets[i] = offs
+		slogLogger.Info("Got given", "partition", i, "offset", offs)
+	}
+
+	hasOneLinitialized := false
+	for i := range cfg.KafkaConfig.NumPartitions {
+		if givenOffsets[i] == -1 {
+			continue
+		} else {
+			hasOneLinitialized = true
+
+			if maxOffsets[i] != givenOffsets[i] {
+				return false, nil
+			}
+		}
+	}
+
+	return hasOneLinitialized, nil
+}

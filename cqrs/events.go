@@ -1,6 +1,9 @@
-package internal
+package cqrs
 
-import "time"
+import (
+	"main.go/utils"
+	"time"
+)
 
 type AdditionalData struct {
 	CreatedAt time.Time `json:"createdAt"`
@@ -75,39 +78,39 @@ func GenerateMessageAdditionalData() *AdditionalData {
 }
 
 func (s *ChatCreated) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *ParticipantsAdded) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *ParticipantRemoved) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *ChatPinned) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *MessageCreated) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *UnreadMessageIncreased) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *MessageReaded) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *MessageRemoved) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *UnreadMessageRefreshed) GetPartitionKey() string {
-	return ToString(s.ChatId)
+	return utils.ToString(s.ChatId)
 }
 
 func (s *ChatCreated) SetOffset(partition int32, offset int64) {

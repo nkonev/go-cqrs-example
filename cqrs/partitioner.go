@@ -1,4 +1,4 @@
-package internal
+package cqrs
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"log/slog"
+	"main.go/logger"
 )
 
 const partitionKey = "partition_key"
@@ -35,7 +36,7 @@ func GenerateKafkaPartitionKey(slogLogger *slog.Logger) kafka.GeneratePartitionK
 		if !ok {
 			return "", errors.New("unable to get partition key from context")
 		}
-		LogWithTrace(msg.Context(), slogLogger).Debug("retrieving partition key", "topic", topic, "msg_metadata", msg.Metadata, partitionKey, pk)
+		logger.LogWithTrace(msg.Context(), slogLogger).Debug("retrieving partition key", "topic", topic, "msg_metadata", msg.Metadata, partitionKey, pk)
 		return pk, nil
 	}
 }

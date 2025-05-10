@@ -1,25 +1,28 @@
-package internal
+package cqrs
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"main.go/db"
+	"main.go/logger"
+	"main.go/utils"
 	"slices"
 )
 
 type CommonProjection struct {
-	db         *DB
+	db         *db.DB
 	slogLogger *slog.Logger
 }
 
-func NewCommonProjection(db *DB, slogLogger *slog.Logger) *CommonProjection {
+func NewCommonProjection(db *db.DB, slogLogger *slog.Logger) *CommonProjection {
 	return &CommonProjection{
 		db:         db,
 		slogLogger: slogLogger,
 	}
 }
 
-func (m *CommonProjection) GetNextChatId(ctx context.Context, tx *Tx) (int64, error) {
+func (m *CommonProjection) GetNextChatId(ctx context.Context, tx *db.Tx) (int64, error) {
 	r := tx.QueryRowContext(ctx, "select nextval('chat_id_sequence')")
 	if r.Err() != nil {
 		return 0, r.Err()
@@ -32,7 +35,7 @@ func (m *CommonProjection) GetNextChatId(ctx context.Context, tx *Tx) (int64, er
 	return nid, nil
 }
 
-func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context, tx *Tx) error {
+func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context, tx *db.Tx) error {
 	r := tx.QueryRowContext(ctx, "SELECT is_called FROM chat_id_sequence")
 	if r.Err() != nil {
 		return r.Err()
@@ -65,7 +68,7 @@ func (m *CommonProjection) InitializeChatIdSequenceIfNeed(ctx context.Context, t
 	return nil
 }
 
-func (m *CommonProjection) GetNextMessageId(ctx context.Context, tx *Tx, chatId int64) (int64, error) {
+func (m *CommonProjection) GetNextMessageId(ctx context.Context, tx *db.Tx, chatId int64) (int64, error) {
 	var messageId int64
 	res := tx.QueryRowContext(ctx, "UPDATE chat_common SET last_generated_message_id = last_generated_message_id + 1 WHERE id = $1 RETURNING last_generated_message_id;", chatId)
 	if res.Err() != nil {
@@ -77,7 +80,7 @@ func (m *CommonProjection) GetNextMessageId(ctx context.Context, tx *Tx, chatId 
 	return messageId, nil
 }
 
-func (m *CommonProjection) GetChatIds(ctx context.Context, tx *Tx) ([]int64, error) {
+func (m *CommonProjection) GetChatIds(ctx context.Context, tx *db.Tx) ([]int64, error) {
 	ma := []int64{}
 	rows, err := tx.QueryContext(ctx, `
 		select c.id
@@ -99,7 +102,7 @@ func (m *CommonProjection) GetChatIds(ctx context.Context, tx *Tx) ([]int64, err
 	return ma, nil
 }
 
-func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, tx *Tx, chatId int64) error {
+func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context, tx *db.Tx, chatId int64) error {
 	r := tx.QueryRowContext(ctx, "SELECT coalesce(last_generated_message_id, 0) from chat_common where id = $1", chatId)
 	if r.Err() != nil {
 		return r.Err()
@@ -138,12 +141,12 @@ func (m *CommonProjection) SetIsNeedToFastForwardSequences(ctx context.Context) 
 	return err
 }
 
-func (m *CommonProjection) UnsetIsNeedToFastForwardSequences(ctx context.Context, tx *Tx) error {
+func (m *CommonProjection) UnsetIsNeedToFastForwardSequences(ctx context.Context, tx *db.Tx) error {
 	_, err := tx.ExecContext(ctx, "delete from technical where need_to_fast_forward_sequences = true")
 	return err
 }
 
-func (m *CommonProjection) GetIsNeedToFastForwardSequences(ctx context.Context, tx *Tx) (bool, error) {
+func (m *CommonProjection) GetIsNeedToFastForwardSequences(ctx context.Context, tx *db.Tx) (bool, error) {
 	r := tx.QueryRowContext(ctx, "select exists(select * from technical where need_to_fast_forward_sequences = true)")
 	var e bool
 	err := r.Scan(&e)
@@ -156,7 +159,7 @@ func (m *CommonProjection) GetIsNeedToFastForwardSequences(ctx context.Context, 
 const lockIdKey1 = 1
 const lockIdKey2 = 2
 
-func (m *CommonProjection) SetXactFastForwardSequenceLock(ctx context.Context, tx *Tx) error {
+func (m *CommonProjection) SetXactFastForwardSequenceLock(ctx context.Context, tx *db.Tx) error {
 	_, err := tx.ExecContext(ctx, "select pg_advisory_xact_lock($1, $2)", lockIdKey1, lockIdKey2)
 	return err
 }
@@ -169,7 +172,7 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	if err != nil {
 		return err
 	}
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Common chat created",
 		"chat_id", event.ChatId,
 		"title", event.Title,
@@ -178,12 +181,12 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
-func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *Tx, participantIds []int64, chatId int64) error {
+func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *db.Tx, participantIds []int64, chatId int64) error {
 	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true, false)
 }
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantsAdded) error {
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 		with input_data as (
 			select unnest(cast ($1 as bigint[])) as user_id, cast ($2 as bigint) as chat_id
@@ -221,7 +224,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		return errOuter
 	}
 
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant added into common chat",
 		"user_id", event.ParticipantIds,
 		"chat_id", event.ChatId,
@@ -231,7 +234,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 }
 
 func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *ParticipantRemoved) error {
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 		delete from chat_participant where user_id = any($1) and chat_id = $2
 	`, event.ParticipantIds, event.ChatId)
@@ -252,7 +255,7 @@ func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *Part
 		return errOuter
 	}
 
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Participant removed from common chat",
 		"user_id", event.ParticipantIds,
 		"chat_id", event.ChatId,
@@ -262,7 +265,7 @@ func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *Part
 }
 
 func (m *CommonProjection) OnMessageRemoved(ctx context.Context, event *MessageRemoved) error {
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 		delete from message where (id, chat_id) = ($1, $2)
 	`, event.MessageId, event.ChatId)
@@ -276,7 +279,7 @@ func (m *CommonProjection) OnMessageRemoved(ctx context.Context, event *MessageR
 		return errOuter
 	}
 
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Message removed from common chat",
 		"message_id", event.MessageId,
 		"chat_id", event.ChatId,
@@ -295,7 +298,7 @@ func (m *CommonProjection) OnChatPinned(ctx context.Context, event *ChatPinned) 
 		return err
 	}
 
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Chat pinned",
 		"user_id", event.ParticipantId,
 		"chat_id", event.ChatId,
@@ -314,7 +317,7 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 	if err != nil {
 		return err
 	}
-	LogWithTrace(ctx, m.slogLogger).Info(
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Handling message added",
 		"id", event.Id,
 		"user_id", event.OwnerId,
@@ -325,8 +328,8 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 }
 
 func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
-		participantIdsWithoutOwner := GetSliceWithout(event.OwnerId, event.ParticipantIds)
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
+		participantIdsWithoutOwner := utils.GetSliceWithout(event.OwnerId, event.ParticipantIds)
 		var ownerId *int64
 		if slices.Contains(event.ParticipantIds, event.OwnerId) { // for batches without owner
 			ownerId = &event.OwnerId
@@ -371,7 +374,7 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
-func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *Tx, participantIds []int64, chatId, messageId int64, needSet, needRefresh bool) error {
+func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *db.Tx, participantIds []int64, chatId, messageId int64, needSet, needRefresh bool) error {
 	_, err := tx.ExecContext(ctx, `
 		with normalized_user as (
 			select unnest(cast ($1 as bigint[])) as user_id
@@ -437,7 +440,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	// actually it should be an update
 	// but we give a chance to create a row unread_messages_user_view in case lack of it
 	// so message read event has a self-healing effect
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		return m.setUnreadMessages(ctx, tx, []int64{event.ParticipantId}, event.ChatId, event.MessageId, false, false)
 	})
 	if errOuter != nil {
@@ -448,7 +451,7 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 }
 
 func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
-	errOuter := Transact(ctx, m.db, func(tx *Tx) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		return m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true, true)
 	})
 
