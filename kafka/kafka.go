@@ -323,7 +323,6 @@ func Export(
 
 			if kafkaMessage.Offset >= partitionMaxOffset-1 {
 				slogLogger.Info("Reached max offset, closing partitionConsumer", "partition", i)
-				partitionConsumer.Close()
 				break
 			}
 		}
