@@ -74,25 +74,14 @@ func RunCreateTopic(
 func RunResetPartitions(
 	slogLogger *slog.Logger,
 	cfg *config.AppConfig,
-	saramaClient sarama.Client,
+	kafkaAdmin sarama.ClusterAdmin,
 ) error {
 	slogLogger.Info("Start reset partitions")
-	config := sarama.NewConfig()
-	config.Version = sarama.V4_0_0_0
 
-	offsetManager, err := sarama.NewOffsetManagerFromClient(cfg.KafkaConfig.ConsumerGroup, saramaClient)
+	err := kafkaAdmin.DeleteConsumerGroup(cfg.KafkaConfig.ConsumerGroup)
+
 	if err != nil {
 		return err
-	}
-	defer offsetManager.Close()
-
-	for i := range cfg.KafkaConfig.NumPartitions {
-		partitionManager, mpErr := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
-		if mpErr != nil {
-			return mpErr
-		}
-		defer partitionManager.AsyncClose() // faster
-		partitionManager.ResetOffset(0, "")
 	}
 
 	slogLogger.Info("Finished reset partitions")
@@ -227,7 +216,7 @@ func isEndOnAllPartitions(
 			}
 			return false, err
 		}
-		defer partitionManager.AsyncClose()
+		defer partitionManager.AsyncClose() // faster
 
 		offs, _ := partitionManager.NextOffset()
 		if err != nil {

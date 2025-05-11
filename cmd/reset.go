@@ -58,7 +58,6 @@ func RunReset() {
 			db.ConfigureDatabase,
 			kafka.ConfigureKafkaAdmin,
 			cqrs.ConfigureCommonProjection,
-			kafka.ConfigureSaramaClient,
 		),
 		fx.Invoke(
 			db.RunResetDatabase,
