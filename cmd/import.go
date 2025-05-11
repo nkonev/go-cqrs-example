@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"main.go/app"
 	"main.go/config"
+	"main.go/cqrs"
+	"main.go/db"
 	"main.go/kafka"
+	"main.go/otel"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -49,9 +52,18 @@ func RunImport() {
 		fx.Supply(slogLogger),
 		fx.Provide(
 			config.CreateTypedConfig,
+			otel.ConfigureTracePropagator,
+			otel.ConfigureTraceProvider,
+			otel.ConfigureTraceExporter,
+			db.ConfigureDatabase,
+			kafka.ConfigureKafkaAdmin,
+			cqrs.ConfigureCommonProjection,
 		),
 		fx.Invoke(
+			db.RunMigrations,
+			kafka.RunCreateTopic,
 			kafka.Import,
+			cqrs.SetIsNeedToFastForwardSequences,
 			app.Shutdown,
 		),
 	)
