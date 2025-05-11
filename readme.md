@@ -55,6 +55,9 @@ curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/
 
 # reset offsets for consumer groups
 go run . reset
+
+# export
+go run . export > /tmp/events.json
 ```
 
 # Tracing

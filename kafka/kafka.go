@@ -3,7 +3,9 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/IBM/sarama"
+	"github.com/Jeffail/gabs/v2"
 	"go.uber.org/fx"
 	"log/slog"
 	"main.go/config"
@@ -164,21 +166,33 @@ func WaitForAllEventsProcessed(
 	return nil
 }
 
+func getMaxOffsets(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	client sarama.Client,
+) ([]int64, error) {
+	maxOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
+
+	for i := range cfg.KafkaConfig.NumPartitions {
+		offset, err := client.GetOffset(cfg.KafkaConfig.Topic, i, sarama.OffsetNewest)
+		if err != nil {
+			return maxOffsets, err
+		}
+		maxOffsets[i] = offset
+		slogLogger.Info("Got max", "partition", i, "offset", offset)
+	}
+	return maxOffsets, nil
+}
+
 func isEndOnAllPartitions(
 	slogLogger *slog.Logger,
 	cfg *config.AppConfig,
 	client sarama.Client,
 ) (bool, error) {
 
-	maxOffsets := make([]int64, cfg.KafkaConfig.NumPartitions)
-
-	for i := range cfg.KafkaConfig.NumPartitions {
-		offset, err := client.GetOffset(cfg.KafkaConfig.Topic, i, sarama.OffsetNewest)
-		if err != nil {
-			return false, err
-		}
-		maxOffsets[i] = offset
-		slogLogger.Info("Got max", "partition", i, "offset", offset)
+	maxOffsets, err := getMaxOffsets(slogLogger, cfg, client)
+	if err != nil {
+		return false, err
 	}
 
 	// check are all 0
@@ -229,4 +243,92 @@ func isEndOnAllPartitions(
 	}
 
 	return hasOneLinitialized, nil
+}
+
+func Export(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	saramaClient sarama.Client,
+) error {
+
+	maxOffsets, err := getMaxOffsets(slogLogger, cfg, saramaClient)
+	if err != nil {
+		return err
+	}
+
+	config := sarama.NewConfig()
+	config.Version = sarama.V4_0_0_0
+
+	newConsumer, err := sarama.NewConsumer(cfg.KafkaConfig.BootstrapServers, config)
+	if err != nil {
+		return err
+	}
+	defer newConsumer.Close()
+
+	for i := range cfg.KafkaConfig.NumPartitions {
+		slogLogger.Info("Reading partition", "partition", i)
+
+		partitionMaxOffset := maxOffsets[i]
+		if partitionMaxOffset == 0 {
+			slogLogger.Info("Skipping partition because absence of messages", "partition", i)
+			continue
+		}
+
+		partitionConsumer, err := newConsumer.ConsumePartition(cfg.KafkaConfig.Topic, i, sarama.OffsetOldest)
+		if err != nil {
+			return err
+		}
+		defer partitionConsumer.Close()
+
+		for kafkaMessage := range partitionConsumer.Messages() {
+			slogLogger.Debug("Reading message", "partition", i, "offset", kafkaMessage.Offset)
+
+			jsonObj := gabs.New()
+			_, err = jsonObj.SetP(kafkaMessage.Offset, "metadata.offset")
+			if err != nil {
+				return err
+			}
+			_, err = jsonObj.SetP(kafkaMessage.Partition, "metadata.partition")
+			if err != nil {
+				return err
+			}
+
+			parsedKey := string(kafkaMessage.Key)
+			parsedValue, err := gabs.ParseJSON(kafkaMessage.Value)
+			if err != nil {
+				return err
+			}
+
+			for _, h := range kafkaMessage.Headers {
+				parsedHeaderKey := string(h.Key)
+				parsedHeaderValue := string(h.Value)
+
+				_, err = jsonObj.Set(parsedHeaderValue, "headers", parsedHeaderKey)
+				if err != nil {
+					return err
+				}
+			}
+
+			_, err = jsonObj.Set(parsedKey, "key")
+			if err != nil {
+				return err
+			}
+
+			_, err = jsonObj.Set(parsedValue, "value")
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(jsonObj.String())
+
+			if kafkaMessage.Offset >= partitionMaxOffset-1 {
+				slogLogger.Info("Reached max offset, closing partitionConsumer", "partition", i)
+				partitionConsumer.Close()
+				break
+			}
+		}
+
+		slogLogger.Info("Finish reading partition", "partition", i)
+	}
+	return nil
 }

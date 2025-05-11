@@ -22,6 +22,7 @@ require (
 )
 
 require (
+	github.com/Jeffail/gabs/v2 v2.7.0 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cenkalti/backoff/v3 v3.2.2 // indirect
