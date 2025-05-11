@@ -4,57 +4,57 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"log/slog"
 	"main.go/app"
 	"main.go/config"
 	"main.go/kafka"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
-// exportCmd represents the export command
-var exportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export events",
-	Long:  `Export events from configured topic to stdout.`,
+// importCmd represents the import command
+var importCmd = &cobra.Command{
+	Use:   "import",
+	Short: "Import events",
+	Long:  `Import events from stdin to the configured topic.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		RunExport()
+		RunImport()
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(importCmd)
 
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
-	// exportCmd.PersistentFlags().String("foo", "", "A help for foo")
+	// importCmd.PersistentFlags().String("foo", "", "A help for foo")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	// exportCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// importCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-func RunExport() {
-	slogLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+func RunImport() {
+	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
-	slogLogger.Info("Start export command")
+	slogLogger.Info("Start import command")
 
 	appFx := fx.New(
 		fx.Supply(slogLogger),
 		fx.Provide(
 			config.CreateTypedConfig,
-			kafka.ConfigureSaramaClient,
 		),
 		fx.Invoke(
-			kafka.Export,
+			kafka.Import,
 			app.Shutdown,
 		),
 	)
 	appFx.Run()
-	slogLogger.Info("Exit export command")
+	slogLogger.Info("Exit import command")
 }

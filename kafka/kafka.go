@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"go.uber.org/fx"
 	"log/slog"
 	"main.go/config"
+	"main.go/utils"
+	"os"
 	"time"
 )
 
@@ -245,6 +248,13 @@ func isEndOnAllPartitions(
 	return hasOneLinitialized, nil
 }
 
+const KeyKey = "key"
+const ValueKey = "value"
+const MetadataKey = "metadata"
+const MetadataOffsetKey = "offset"
+const MetadataPartitionKey = "partition"
+const HeadersKey = "headers"
+
 func Export(
 	slogLogger *slog.Logger,
 	cfg *config.AppConfig,
@@ -284,11 +294,11 @@ func Export(
 			slogLogger.Debug("Reading message", "partition", i, "offset", kafkaMessage.Offset)
 
 			jsonObj := gabs.New()
-			_, err = jsonObj.SetP(kafkaMessage.Offset, "metadata.offset")
+			_, err = jsonObj.SetP(kafkaMessage.Offset, MetadataKey+"."+MetadataOffsetKey)
 			if err != nil {
 				return err
 			}
-			_, err = jsonObj.SetP(kafkaMessage.Partition, "metadata.partition")
+			_, err = jsonObj.SetP(kafkaMessage.Partition, MetadataKey+"."+MetadataPartitionKey)
 			if err != nil {
 				return err
 			}
@@ -303,18 +313,18 @@ func Export(
 				parsedHeaderKey := string(h.Key)
 				parsedHeaderValue := string(h.Value)
 
-				_, err = jsonObj.Set(parsedHeaderValue, "headers", parsedHeaderKey)
+				_, err = jsonObj.Set(parsedHeaderValue, HeadersKey, parsedHeaderKey)
 				if err != nil {
 					return err
 				}
 			}
 
-			_, err = jsonObj.Set(parsedKey, "key")
+			_, err = jsonObj.Set(parsedKey, KeyKey)
 			if err != nil {
 				return err
 			}
 
-			_, err = jsonObj.Set(parsedValue, "value")
+			_, err = jsonObj.Set(parsedValue, ValueKey)
 			if err != nil {
 				return err
 			}
@@ -329,5 +339,76 @@ func Export(
 
 		slogLogger.Info("Finish reading partition", "partition", i)
 	}
+	return nil
+}
+
+func Import(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+) error {
+	config := sarama.NewConfig()
+	config.Version = sarama.V4_0_0_0
+	config.Producer.Return.Successes = true
+
+	producer, err := sarama.NewSyncProducer(cfg.KafkaConfig.BootstrapServers, config)
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	i := 0
+	for scanner.Scan() {
+		i++
+		str := scanner.Text()
+		jsonObj, err := gabs.ParseJSON([]byte(str))
+		if err != nil {
+			return fmt.Errorf("Error on reading line %v: %w", i, err)
+		}
+
+		kd := jsonObj.S(KeyKey).Data()
+		aKey, okk := kd.(string)
+		if !okk {
+			return fmt.Errorf("Error on parsing key on reading line %v from %v", i, kd)
+		}
+
+		aValue := jsonObj.S(ValueKey).Bytes()
+		aPartition := jsonObj.S(MetadataKey, MetadataPartitionKey).String()
+		partition, err := utils.ParseInt64(aPartition)
+		if err != nil {
+			return fmt.Errorf("Error on parsing partition on reading line %v: %w", i, err)
+		}
+
+		aOffset := jsonObj.S(MetadataKey, MetadataOffsetKey).String()
+		offset, err := utils.ParseInt64(aOffset)
+		if err != nil {
+			return fmt.Errorf("Error on parsing offset on reading line %v: %w", i, err)
+		}
+
+		msg := &sarama.ProducerMessage{
+			Topic:     cfg.KafkaConfig.Topic,
+			Key:       sarama.ByteEncoder(aKey),
+			Value:     sarama.ByteEncoder(aValue),
+			Partition: int32(partition),
+			Offset:    offset,
+		}
+
+		for headerKey, headerValue := range jsonObj.S(HeadersKey).ChildrenMap() {
+			hd := headerValue.Data()
+			hds, okhv := hd.(string)
+			if !okhv {
+				return fmt.Errorf("Error on parsing header value on reading line %v from %v for key %v", i, hd, headerKey)
+			}
+			msg.Headers = append(msg.Headers, sarama.RecordHeader{
+				Key:   []byte(headerKey),
+				Value: []byte(hds),
+			})
+		}
+
+		_, _, err = producer.SendMessage(msg)
+		if err != nil {
+			return fmt.Errorf("Error on sending message from line %v: %w", i, err)
+		}
+	}
+
 	return nil
 }
