@@ -377,18 +377,11 @@ func Import(
 			return fmt.Errorf("Error on parsing partition on reading line %v: %w", i, err)
 		}
 
-		aOffset := jsonObj.S(MetadataKey, MetadataOffsetKey).String()
-		offset, err := utils.ParseInt64(aOffset)
-		if err != nil {
-			return fmt.Errorf("Error on parsing offset on reading line %v: %w", i, err)
-		}
-
 		msg := &sarama.ProducerMessage{
 			Topic:     cfg.KafkaConfig.Topic,
 			Key:       sarama.ByteEncoder(aKey),
 			Value:     sarama.ByteEncoder(aValue),
 			Partition: int32(partition),
-			Offset:    offset,
 		}
 
 		for headerKey, headerValue := range jsonObj.S(HeadersKey).ChildrenMap() {

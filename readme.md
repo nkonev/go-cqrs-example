@@ -21,7 +21,7 @@ go run . serve
 # create a chat
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
 
-# see chats
+# show chats
 curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
 
 # pin chat
@@ -32,7 +32,7 @@ curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 2"}'
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message 3"}'
 
-# see messages
+# show messages
 curl -Ss -X GET --url 'http://localhost:8080/chat/1/message/search' | jq
 
 # read message
@@ -44,10 +44,10 @@ curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/
 # remove participant from chat
 curl -i -X DELETE -H 'Content-Type: application/json' --url 'http://localhost:8080/chat/1/participant' -d '{"participantIds": [3]}'
 
-# see participants
+# show participants
 curl -Ss -X GET --url 'http://localhost:8080/chat/1/participants' | jq
 
-# get his chats - see unreads
+# get his chats - show unreads
 curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
 
 # remove message from chat
@@ -77,18 +77,18 @@ See `Trace-Id` header and put its value into [Jaeger UI](http://localhost:16686)
 
 # Various commands
 ```bash
-# see logs
+# show logs
 docker compose logs -f kafka
 docker compose logs -f postgresql
 
-# see projections
+# show projections
 docker compose exec -it postgresql psql -U postgres
 
 docker compose exec -it kafka bash
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --list
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group CommonProjection --offsets
 
-# see kafka topic
+# show kafka topic's messages
 docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic events --from-beginning --property print.key=true --property print.headers=true
 
 # non-actual resetting - missed fast-forwarding of sequences
