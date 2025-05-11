@@ -221,10 +221,9 @@ func isEndOnAllPartitions(
 	for i := range cfg.KafkaConfig.NumPartitions {
 		partitionManager, err := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
 		if err != nil {
-			// todo import
 			if strings.Contains(err.Error(), "response did not contain all the expected topic/partition blocks") {
 				slogLogger.Info("Skipping partition", "partition", i)
-				continue
+				return false, nil
 			}
 			return false, err
 		}
