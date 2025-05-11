@@ -352,6 +352,7 @@ func Import(
 	if err != nil {
 		return err
 	}
+	defer producer.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	i := 0
