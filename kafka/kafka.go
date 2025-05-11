@@ -81,7 +81,11 @@ func RunResetPartitions(
 	err := kafkaAdmin.DeleteConsumerGroup(cfg.KafkaConfig.ConsumerGroup)
 
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "The group id does not exist") {
+			slogLogger.Info("There is no consumer group", "consumer_group", cfg.KafkaConfig.ConsumerGroup)
+		} else {
+			return err
+		}
 	}
 
 	slogLogger.Info("Finished reset partitions")
