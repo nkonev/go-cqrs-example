@@ -183,7 +183,7 @@ func ConfigureEventProcessor(
 	kafkaConsumerConfig.Consumer.Return.Errors = cfg.KafkaConfig.KafkaConsumerConfig.ReturnErrors
 	kafkaConsumerConfig.Version = sarama.V4_0_0_0
 	kafkaConsumerConfig.ClientID = cfg.KafkaConfig.KafkaConsumerConfig.ClientId
-	kafkaConsumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest // todo import
+	kafkaConsumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest // need for tp work after import
 
 	eventProcessor, err := cqrs.NewEventGroupProcessorWithConfig(
 		cqrsRouter,
