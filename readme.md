@@ -55,21 +55,6 @@ curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/
 
 # reset offsets for consumer groups
 go run . reset
-
-# exporting and importing
-go run . serve
-curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
-Ctrl + C
-
-go run . export > /tmp/events.json
-
-docker compose down -v
-docker compose up -d
-
-cat /tmp/events.json | go run . import
-go run . serve
-
-curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
 ```
 
 # Tracing
@@ -99,8 +84,9 @@ docker volume rm go-cqrs-example_postgres_data
 docker compose up -d postgresql
 ```
 
-# Testcase
+# Testcases
 ```bash
+# unreads
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message"}'
 curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
@@ -118,4 +104,24 @@ curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
 curl -i -X DELETE  -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message/3'
 curl -Ss -X GET -H 'X-UserId: 2' --url 'http://localhost:8080/chat/search' | jq
 curl -Ss -X GET -H 'X-UserId: 3' --url 'http://localhost:8080/chat/search' | jq
+```
+
+```bash
+# exporting and importing
+go run . serve
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
+curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message"}'
+Ctrl + C
+
+go run . export > /tmp/events.json
+
+docker compose down -v
+docker compose up -d
+
+cat /tmp/events.json | go run . import
+go run . serve
+
+curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
+curl -Ss -X GET --url 'http://localhost:8080/chat/1/participants' | jq
+curl -Ss -X GET --url 'http://localhost:8080/chat/1/message/search' | jq
 ```
