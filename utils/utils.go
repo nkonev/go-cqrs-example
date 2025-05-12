@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 )
 
@@ -33,4 +34,9 @@ func GetSliceWithout(exception int64, inputData []int64) []int64 {
 		}
 	}
 	return ret
+}
+
+func StringToUrl(s string) *url.URL {
+	u, _ := url.Parse(s)
+	return u
 }

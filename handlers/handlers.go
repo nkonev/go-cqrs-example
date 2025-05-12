@@ -71,9 +71,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		m := map[string]any{
-			"id": chatId,
-		}
+		m := IdResponse{Id: chatId}
 
 		g.JSON(http.StatusOK, m)
 	})
@@ -266,9 +264,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		m := map[string]any{
-			"id": mid,
-		}
+		m := IdResponse{Id: mid}
 
 		g.JSON(http.StatusOK, m)
 	})
@@ -370,6 +366,14 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 		}
 		g.JSON(http.StatusOK, messages)
 	})
+
+	ginRouter.GET("/internal/health", func(g *gin.Context) {
+		g.Status(http.StatusOK)
+	})
+}
+
+type IdResponse struct {
+	Id int64 `json:"id"`
 }
 
 func getUserId(g *gin.Context) (int64, error) {

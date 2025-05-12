@@ -65,12 +65,19 @@ type CqrsConfig struct {
 	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
 }
 
+type RestClientConfig struct {
+	MaxIdleConns       int           `mapstructure:"maxIdleConns"`
+	IdleConnTimeout    time.Duration `mapstructure:"idleConnTimeout"`
+	DisableCompression bool          `mapstructure:"disableCompression"`
+}
+
 type AppConfig struct {
 	KafkaConfig      KafkaConfig      `mapstructure:"kafka"`
 	OtlpConfig       OtlpConfig       `mapstructure:"otlp"`
 	PostgreSQLConfig PostgreSQLConfig `mapstructure:"postgresql"`
 	HttpServerConfig HttpServerConfig `mapstructure:"server"`
 	CqrsConfig       CqrsConfig       `mapstructure:"cqrs"`
+	RestClientConfig RestClientConfig `mapstructure:"http"`
 }
 
 //go:embed config-dev

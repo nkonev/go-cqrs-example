@@ -35,3 +35,8 @@ cqrs:
   # sleepBeforeEvent: 500ms
   sleepBeforeEvent: 0
   checkAreEventsProcessedInterval: 2s
+# Rest client
+http:
+  maxIdleConns: 2
+  idleConnTimeout: '10s'
+  disableCompression: false

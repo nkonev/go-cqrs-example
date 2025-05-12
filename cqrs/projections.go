@@ -580,3 +580,16 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	}
 	return ma, nil
 }
+
+func (m *CommonProjection) GetChatByUserIdAndChatId(ctx context.Context, userId, chatId int64) (string, error) {
+	r := m.db.QueryRowContext(ctx, "select c.title from chat_user_view ch join chat_common c on ch.id = c.id where ch.user_id = $1 and ch.id = $2", userId, chatId)
+	if r.Err() != nil {
+		return "", r.Err()
+	}
+	var t string
+	err := r.Scan(&t)
+	if err != nil {
+		return "", err
+	}
+	return t, nil
+}

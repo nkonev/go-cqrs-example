@@ -71,6 +71,20 @@ func RunCreateTopic(
 	return nil
 }
 
+func RunDeleteTopic(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	kafkaAdmin sarama.ClusterAdmin,
+) error {
+	slogLogger.Warn("Removing topic", "topic", cfg.KafkaConfig.Topic)
+	err := kafkaAdmin.DeleteTopic(cfg.KafkaConfig.Topic)
+	if err != nil {
+		return err
+	}
+	slogLogger.Warn("Topic was removed", "topic", cfg.KafkaConfig.Topic)
+	return nil
+}
+
 func RunResetPartitions(
 	slogLogger *slog.Logger,
 	cfg *config.AppConfig,

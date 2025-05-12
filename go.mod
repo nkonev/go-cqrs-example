@@ -2,6 +2,7 @@ module main.go
 
 require (
 	github.com/IBM/sarama v1.45.0
+	github.com/Jeffail/gabs/v2 v2.7.0
 	github.com/ThreeDotsLabs/watermill v1.4.6
 	github.com/ThreeDotsLabs/watermill-kafka/v3 v3.0.6
 	github.com/XSAM/otelsql v0.38.0
@@ -9,8 +10,11 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.15.1
 	github.com/jackc/pgx/v4 v4.15.0
 	github.com/nkonev/watermill-opentelemetry v0.1.11
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.7.0
+	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.60.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.opentelemetry.io/contrib/propagators/jaeger v1.35.0
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.35.0
@@ -22,7 +26,6 @@ require (
 )
 
 require (
-	github.com/Jeffail/gabs/v2 v2.7.0 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cenkalti/backoff/v3 v3.2.2 // indirect
@@ -33,6 +36,7 @@ require (
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230731223053-c322873962e3 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
+	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/gin-contrib/sse v1.0.0 // indirect
@@ -79,11 +83,11 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/spf13/afero v1.2.2 // indirect
 	github.com/spf13/cast v1.3.0 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/jwalterweatherman v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
