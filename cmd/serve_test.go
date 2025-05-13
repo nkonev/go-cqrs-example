@@ -116,7 +116,14 @@ func WaitForHealthCheck(slogLogger *slog.Logger, restClient *client.RestClient, 
 }
 
 func TestUnreads(t *testing.T) {
-	startAppFull(t, func(slogLogger *slog.Logger, cfg *config.AppConfig, restClient *client.RestClient, saramaClient sarama.Client, m *cqrs.CommonProjection, lc fx.Lifecycle) {
+	startAppFull(t, func(
+		slogLogger *slog.Logger,
+		cfg *config.AppConfig,
+		restClient *client.RestClient,
+		saramaClient sarama.Client,
+		m *cqrs.CommonProjection,
+		lc fx.Lifecycle,
+	) {
 		var user1 int64 = 1
 		chatName := "chat 1"
 		ctx := context.Background()
