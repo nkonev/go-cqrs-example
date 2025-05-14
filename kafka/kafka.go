@@ -244,12 +244,12 @@ func isEndOnAllPartitions(
 		slogLogger.Info("Got given", "partition", i, "offset", offs)
 	}
 
-	hasOneLinitialized := false
+	hasOneInitialized := false
 	for i := range cfg.KafkaConfig.NumPartitions {
 		if givenOffsets[i] == -1 {
 			continue
 		} else {
-			hasOneLinitialized = true
+			hasOneInitialized = true
 
 			if maxOffsets[i] != givenOffsets[i] {
 				return false, nil
@@ -257,7 +257,7 @@ func isEndOnAllPartitions(
 		}
 	}
 
-	return hasOneLinitialized, nil
+	return hasOneInitialized, nil
 }
 
 const KeyKey = "key"
