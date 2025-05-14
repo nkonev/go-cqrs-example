@@ -7,6 +7,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 	"log/slog"
+	"main.go/app"
 	"main.go/client"
 	"main.go/config"
 	"main.go/cqrs"
@@ -41,8 +42,30 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 		Level: slog.LevelDebug,
 	}))
 
+	appFx := fx.New(
+		fx.Supply(
+			slogLogger,
+		),
+		fx.Provide(
+			config.CreateTypedConfig,
+			otel.ConfigureTracePropagator,
+			otel.ConfigureTraceProvider,
+			otel.ConfigureTraceExporter,
+			db.ConfigureDatabase,
+			kafka.ConfigureKafkaAdmin,
+		),
+		fx.Invoke(
+			db.RunResetDatabase,
+			kafka.RunDeleteTopic,
+			db.RunMigrations,
+			kafka.RunCreateTopic,
+			app.Shutdown,
+		),
+	)
+	appFx.Run()
+
 	var s fx.Shutdowner
-	appFx := fxtest.New(
+	appTestFx := fxtest.New(
 		t,
 		fx.Supply(
 			slogLogger,
@@ -68,19 +91,15 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 			client.NewRestClient,
 		),
 		fx.Invoke(
-			db.RunResetDatabase,
-			kafka.RunDeleteTopic,
-			db.RunMigrations,
-			kafka.RunCreateTopic,
 			cqrs.RunCqrsRouter,
 			handlers.RunHttpServer,
 			WaitForHealthCheck,
 			testFunc,
 		),
 	)
-	defer appFx.RequireStart().RequireStop()
+	defer appTestFx.RequireStart().RequireStop()
 	assert.NoError(t, s.Shutdown(), "error in app shutdown")
-	return appFx
+	return appTestFx
 }
 
 func WaitForHealthCheck(slogLogger *slog.Logger, restClient *client.RestClient, cfg *config.AppConfig) {
