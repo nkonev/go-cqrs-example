@@ -69,13 +69,7 @@ func (rc *RestClient) CreateMessage(ctx context.Context, behalfUserId int64, cha
 }
 
 func (rc *RestClient) DeleteMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
-	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "DELETE", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId), "message.Delete", nil)
-	if err != nil {
-		return err
-	}
-	defer httpResp.Body.Close()
-
-	return nil
+	return queryNoResponse[any](ctx, rc, behalfUserId, "DELETE", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId), "message.Delete", nil)
 }
 
 func (rc *RestClient) GetMessages(ctx context.Context, behalfUserId int64, chatId int64) ([]cqrs.MessageViewDto, error) {
@@ -86,13 +80,7 @@ func (rc *RestClient) AddChatParticipants(ctx context.Context, chatId int64, par
 	req := handlers.ParticipantAddDto{
 		ParticipantIds: participantIds,
 	}
-	httpResp, err := queryRaw[handlers.ParticipantAddDto](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
-	if err != nil {
-		return err
-	}
-	defer httpResp.Body.Close()
-
-	return nil
+	return queryNoResponse[handlers.ParticipantAddDto](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
 }
 
 func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]int64, error) {
@@ -100,27 +88,15 @@ func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]
 }
 
 func (rc *RestClient) ReadMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
-	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId)+"/read", "message.Read", nil)
-	if err != nil {
-		return err
-	}
-	defer httpResp.Body.Close()
-
-	return nil
+	return queryNoResponse[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId)+"/read", "message.Read", nil)
 }
 
 func (rc *RestClient) HealthCheck(ctx context.Context) error {
-	httpResp, err := queryRaw[any](ctx, rc, 0, "GET", "/internal/health", "internal.HealthCheck", nil)
-	if err != nil {
-		return err
-	}
-	defer httpResp.Body.Close()
-
-	return nil
+	return queryNoResponse[any](ctx, rc, 0, "GET", "/internal/health", "internal.HealthCheck", nil)
 }
 
 // You should call 	defer httpResp.Body.Close()
-func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (*http.Response, error) {
+func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (*http.Response, error) {
 	contentType := "application/json;charset=UTF-8"
 	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + url)
 
@@ -168,7 +144,7 @@ func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int6
 func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
 	var resp ResDto
 	var err error
-	httpResp, err := queryRaw(ctx, rc, behalfUserId, method, url, opName, req)
+	httpResp, err := queryRawResponse(ctx, rc, behalfUserId, method, url, opName, req)
 	if err != nil {
 		return resp, err
 	}
@@ -185,4 +161,15 @@ func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUs
 		return resp, err
 	}
 	return resp, nil
+}
+
+func queryNoResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) error {
+	var err error
+	httpResp, err := queryRawResponse(ctx, rc, behalfUserId, method, url, opName, req)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	return nil
 }
