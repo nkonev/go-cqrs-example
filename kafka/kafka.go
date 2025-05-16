@@ -190,7 +190,7 @@ func getMaxOffsets(
 			return maxOffsets, err
 		}
 		maxOffsets[i] = offset
-		slogLogger.Info("Got max", "partition", i, "offset", offset)
+		slogLogger.Debug("Got max", "partition", i, "offset", offset)
 	}
 	return maxOffsets, nil
 }
@@ -241,7 +241,7 @@ func isEndOnAllPartitions(
 			return false, err
 		}
 		givenOffsets[i] = offs
-		slogLogger.Info("Got given", "partition", i, "offset", offs)
+		slogLogger.Debug("Got given", "partition", i, "offset", offs)
 	}
 
 	hasOneInitialized := false
@@ -288,13 +288,13 @@ func Export(
 	defer newConsumer.Close()
 
 	for i := range cfg.KafkaConfig.NumPartitions {
-		slogLogger.Info("Reading partition", "partition", i)
-
 		partitionMaxOffset := maxOffsets[i]
 		if partitionMaxOffset == 0 {
 			slogLogger.Info("Skipping partition because absence of messages", "partition", i)
 			continue
 		}
+
+		slogLogger.Info("Reading partition and it's max offset", "partition", i, "offset", partitionMaxOffset)
 
 		partitionConsumer, err := newConsumer.ConsumePartition(cfg.KafkaConfig.Topic, i, sarama.OffsetOldest)
 		if err != nil {
@@ -303,8 +303,6 @@ func Export(
 		defer partitionConsumer.Close()
 
 		for kafkaMessage := range partitionConsumer.Messages() {
-			// slogLogger.Debug("Reading message", "partition", i, "offset", kafkaMessage.Offset)
-
 			jsonObj := gabs.New()
 			_, err = jsonObj.SetP(kafkaMessage.Offset, MetadataKey+"."+MetadataOffsetKey)
 			if err != nil {
