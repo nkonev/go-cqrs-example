@@ -152,15 +152,14 @@ func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int6
 }
 
 func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
+	var resp ResDto
 	var err error
 	httpResp, err := queryRaw(ctx, rc, behalfUserId, method, url, opName, req)
-	defer func() {
-		if httpResp != nil {
-			httpResp.Body.Close()
-		}
-	}()
+	if err != nil {
+		return resp, err
+	}
+	defer httpResp.Body.Close()
 
-	var resp ResDto
 	bodyBytes, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to decode %v response:", opName), "err", err)
