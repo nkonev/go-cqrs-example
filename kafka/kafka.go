@@ -303,7 +303,7 @@ func Export(
 		defer partitionConsumer.Close()
 
 		for kafkaMessage := range partitionConsumer.Messages() {
-			slogLogger.Debug("Reading message", "partition", i, "offset", kafkaMessage.Offset)
+			// slogLogger.Debug("Reading message", "partition", i, "offset", kafkaMessage.Offset)
 
 			jsonObj := gabs.New()
 			_, err = jsonObj.SetP(kafkaMessage.Offset, MetadataKey+"."+MetadataOffsetKey)
