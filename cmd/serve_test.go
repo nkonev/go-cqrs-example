@@ -177,6 +177,7 @@ func TestUnreads(t *testing.T) {
 		assert.Equal(t, message1Text, message1.Content)
 
 		err = restClient.AddChatParticipants(ctx, chat1Id, []int64{user2, user3})
+		assert.NoError(t, err, "error in adding participants")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
 		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
@@ -236,7 +237,7 @@ func TestUnreads(t *testing.T) {
 		assert.Equal(t, int64(3), chat1OfUser33.UnreadMessages)
 
 		err = restClient.DeleteMessage(ctx, user1, chat1Id, messageId3)
-		assert.NoError(t, err, "error in remove message")
+		assert.NoError(t, err, "error in delete message")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
 		user2ChatsNew4, err := restClient.GetChatsByUserId(ctx, user2)

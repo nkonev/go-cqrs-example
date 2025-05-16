@@ -86,8 +86,13 @@ func (rc *RestClient) AddChatParticipants(ctx context.Context, chatId int64, par
 	req := handlers.ParticipantAddDto{
 		ParticipantIds: participantIds,
 	}
-	_, err := query[handlers.ParticipantAddDto, any](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
-	return err
+	httpResp, err := queryRaw[handlers.ParticipantAddDto](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	return nil
 }
 
 func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]int64, error) {
