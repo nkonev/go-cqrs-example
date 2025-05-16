@@ -153,7 +153,11 @@ func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int6
 func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
 	var err error
 	httpResp, err := queryRaw(ctx, rc, behalfUserId, method, url, opName, req)
-	defer httpResp.Body.Close()
+	defer func() {
+		if httpResp != nil {
+			httpResp.Body.Close()
+		}
+	}()
 
 	var resp ResDto
 	bodyBytes, err := ioutil.ReadAll(httpResp.Body)
