@@ -34,7 +34,7 @@ server:
 cqrs:
   # sleepBeforeEvent: 500ms
   sleepBeforeEvent: 0
-  checkAreEventsProcessedInterval: 2s
+  checkAreEventsProcessedInterval: 500ms
 # Rest client
 http:
   maxIdleConns: 2
