@@ -70,12 +70,12 @@ func (rc *RestClient) CreateMessage(ctx context.Context, behalfUserId int64, cha
 
 func (rc *RestClient) DeleteMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
 	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "DELETE", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId), "message.Delete", nil)
-	defer func() {
-		if httpResp != nil {
-			httpResp.Body.Close()
-		}
-	}()
-	return err
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	return nil
 }
 
 func (rc *RestClient) GetMessages(ctx context.Context, behalfUserId int64, chatId int64) ([]cqrs.MessageViewDto, error) {
@@ -96,13 +96,12 @@ func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]
 
 func (rc *RestClient) ReadMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
 	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId)+"/read", "message.Read", nil)
-	defer func() {
-		if httpResp != nil {
-			httpResp.Body.Close()
-		}
-	}()
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
 
-	return err
+	return nil
 }
 
 // You should call 	defer httpResp.Body.Close()
