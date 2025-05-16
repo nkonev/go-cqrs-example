@@ -18,6 +18,7 @@ import (
 	"go.uber.org/fx"
 	"log/slog"
 	"main.go/config"
+	appKafka "main.go/kafka"
 	"time"
 )
 
@@ -80,6 +81,7 @@ func ConfigureCqrsRouter(
 	propagator propagation.TextMapPropagator,
 	tp *sdktrace.TracerProvider,
 	cfg *config.AppConfig,
+	fastTestCurrentOffsetsStore *appKafka.FastTestCurrentOffsetsStore,
 	lc fx.Lifecycle,
 ) (*message.Router, error) {
 	// CQRS is built on messages router. Detailed documentation: https://watermill.io/docs/messages-router/
@@ -104,6 +106,17 @@ func ConfigureCqrsRouter(
 				time.Sleep(cfg.CqrsConfig.SleepBeforeEvent)
 			}
 			logger.LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
+
+			if fastTestCurrentOffsetsStore != nil {
+				p, ok1 := kafka.MessagePartitionFromCtx(msg.Context())
+				if ok1 {
+					o, ok2 := kafka.MessagePartitionOffsetFromCtx(msg.Context())
+					if ok2 {
+						(*fastTestCurrentOffsetsStore)[p] = o
+					}
+				}
+			}
+
 			return h(msg)
 		}
 	})

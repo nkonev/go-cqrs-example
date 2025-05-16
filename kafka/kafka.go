@@ -159,7 +159,60 @@ func WaitForAllEventsProcessed(
 			return errE
 		}
 		if isEnd {
-			slogLogger.Info("All the events was processed")
+			slogLogger.Info("All the events were processed")
+			cancelFunc()
+		} else {
+			slogLogger.Info("The current offsets still aren't equal to the latest ones")
+		}
+
+		if errors.Is(stoppingCtx.Err(), context.Canceled) {
+			slogLogger.Info("Exiting from waiter")
+			break
+		} else {
+			slogLogger.Info("Will wait before the next check iteration", "duration", du)
+			time.Sleep(du)
+		}
+	}
+
+	return nil
+}
+
+type FastTestCurrentOffsetsStore []int64
+
+func ConfigureFastTestCurrentOffsetsStore(cfg *config.AppConfig) *FastTestCurrentOffsetsStore {
+	arr := make([]int64, cfg.KafkaConfig.NumPartitions)
+	st := FastTestCurrentOffsetsStore(arr)
+	return &st
+}
+
+func WaitForAllEventsProcessedTest(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	saramaClient sarama.Client,
+	fastTestCurrentOffsetsStore *FastTestCurrentOffsetsStore,
+	lc fx.Lifecycle,
+) error {
+	stoppingCtx, cancelFunc := context.WithCancel(context.Background())
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			slogLogger.Info("Stopping waiter")
+			cancelFunc()
+			return nil
+		},
+	})
+
+	du := cfg.CqrsConfig.CheckAreEventsProcessedInterval
+
+	for {
+		slogLogger.Info("Checking for the current offsets will be equal to the latest ones for all partitions")
+		isEnd, errE := isEndOnAllPartitionsTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore)
+		if errE != nil {
+			slogLogger.Error("Error during checking isEndOnAllPartitions", "err", errE)
+			return errE
+		}
+		if isEnd {
+			slogLogger.Info("All the events were processed")
 			cancelFunc()
 		} else {
 			slogLogger.Info("The current offsets still aren't equal to the latest ones")
@@ -258,6 +311,54 @@ func isEndOnAllPartitions(
 	}
 
 	return hasOneInitialized, nil
+}
+
+func isEndOnAllPartitionsTest(
+	slogLogger *slog.Logger,
+	cfg *config.AppConfig,
+	client sarama.Client,
+	currentOffsetsStore *FastTestCurrentOffsetsStore,
+) (bool, error) {
+
+	maxOffsets, err := getMaxOffsets(slogLogger, cfg, client)
+	if err != nil {
+		return false, err
+	}
+
+	// check are all 0
+	allZero := true
+	for p := range maxOffsets {
+		if maxOffsets[p] != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return true, nil
+	}
+
+	givenOffsets := *currentOffsetsStore
+	for i := range cfg.KafkaConfig.NumPartitions {
+		slogLogger.Info("Got given", "partition", i, "offset", givenOffsets[i])
+	}
+
+	remaining := cfg.KafkaConfig.NumPartitions
+	for i := range cfg.KafkaConfig.NumPartitions {
+		maxOff := maxOffsets[i]
+		if maxOff > 0 {
+			maxMinusOne := maxOff - 1
+			if maxMinusOne != givenOffsets[i] {
+				remaining--
+				return false, nil
+			} else {
+				remaining--
+			}
+		} else {
+			remaining--
+		}
+	}
+
+	return remaining == 0, nil
 }
 
 const KeyKey = "key"

@@ -73,6 +73,7 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 		fx.Populate(&s),
 		fx.Provide(
 			config.CreateTypedConfig,
+			kafka.ConfigureFastTestCurrentOffsetsStore,
 			otel.ConfigureTracePropagator,
 			otel.ConfigureTraceProvider,
 			otel.ConfigureTraceExporter,
@@ -141,6 +142,7 @@ func TestUnreads(t *testing.T) {
 		restClient *client.RestClient,
 		saramaClient sarama.Client,
 		m *cqrs.CommonProjection,
+		fastTestCurrentOffsetsStore *kafka.FastTestCurrentOffsetsStore,
 		lc fx.Lifecycle,
 	) {
 		var user1 int64 = 1
@@ -153,7 +155,7 @@ func TestUnreads(t *testing.T) {
 		chat1Id, err := restClient.CreateChat(ctx, user1, chat1Name)
 		assert.NoError(t, err, "error in creating chat")
 		assert.True(t, chat1Id > 0)
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		title, err := m.GetChatByUserIdAndChatId(ctx, user1, chat1Id)
 		assert.NoError(t, err, "error in getting chat")
@@ -163,7 +165,7 @@ func TestUnreads(t *testing.T) {
 
 		message1Id, err := restClient.CreateMessage(ctx, user1, chat1Id, message1Text)
 		assert.NoError(t, err, "error in creating message")
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		user1Chats, err := restClient.GetChatsByUserId(ctx, user1)
 		assert.NoError(t, err, "error in getting chats")
@@ -188,7 +190,7 @@ func TestUnreads(t *testing.T) {
 		assert.Equal(t, message1Text, message1.Content)
 
 		err = restClient.AddChatParticipants(ctx, chat1Id, []int64{user2, user3})
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
 		assert.NoError(t, err, "error in char participants")
@@ -210,7 +212,7 @@ func TestUnreads(t *testing.T) {
 
 		err = restClient.ReadMessage(ctx, user2, chat1Id, message1.Id)
 		assert.NoError(t, err, "error in reading message")
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		user2ChatsNew2, err := restClient.GetChatsByUserId(ctx, user2)
 		assert.NoError(t, err, "error in getting chats")
@@ -232,7 +234,7 @@ func TestUnreads(t *testing.T) {
 		messageId3, err := restClient.CreateMessage(ctx, user1, chat1Id, message3Text)
 		assert.NoError(t, err, "error in creating message")
 		assert.True(t, messageId3 > 0)
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		user2ChatsNew3, err := restClient.GetChatsByUserId(ctx, user2)
 		assert.NoError(t, err, "error in getting chats")
@@ -248,7 +250,7 @@ func TestUnreads(t *testing.T) {
 
 		err = restClient.DeleteMessage(ctx, user1, chat1Id, messageId3)
 		assert.NoError(t, err, "error in remove message")
-		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+		assert.NoError(t, kafka.WaitForAllEventsProcessedTest(slogLogger, cfg, saramaClient, fastTestCurrentOffsetsStore, lc), "error in waiting for processing events")
 
 		user2ChatsNew4, err := restClient.GetChatsByUserId(ctx, user2)
 		assert.NoError(t, err, "error in getting chats")
