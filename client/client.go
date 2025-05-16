@@ -104,6 +104,16 @@ func (rc *RestClient) ReadMessage(ctx context.Context, behalfUserId int64, chatI
 	return nil
 }
 
+func (rc *RestClient) HealthCheck(ctx context.Context) error {
+	httpResp, err := queryRaw[any](ctx, rc, 0, "GET", "/internal/health", "internal.HealthCheck", nil)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	return nil
+}
+
 // You should call 	defer httpResp.Body.Close()
 func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (*http.Response, error) {
 	contentType := "application/json;charset=UTF-8"

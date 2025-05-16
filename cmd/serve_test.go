@@ -15,8 +15,6 @@ import (
 	"main.go/handlers"
 	"main.go/kafka"
 	"main.go/otel"
-	"main.go/utils"
-	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -103,24 +101,15 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 }
 
 func WaitForHealthCheck(slogLogger *slog.Logger, restClient *client.RestClient, cfg *config.AppConfig) {
-	defer restClient.CloseIdleConnections()
+	ctx := context.Background()
+
 	i := 0
 	const maxAttempts = 60
 	success := false
 	for ; i <= maxAttempts; i++ {
-		requestHeaders1 := map[string][]string{}
-		getChatRequest := &http.Request{
-			Method: "GET",
-			Header: requestHeaders1,
-			URL:    utils.StringToUrl("http://localhost" + cfg.HttpServerConfig.Address + "/internal/health"),
-		}
-		getChatResponse, err := restClient.Do(getChatRequest)
+		err := restClient.HealthCheck(ctx)
 		if err != nil {
-			slogLogger.Info("Awaiting while chat have been started - transport error")
-			time.Sleep(time.Second * 1)
-			continue
-		} else if !(getChatResponse.StatusCode >= 200 && getChatResponse.StatusCode < 300) {
-			slogLogger.Info("Awaiting while chat have been started - non-2xx code")
+			slogLogger.Info("Awaiting while chat have been started")
 			time.Sleep(time.Second * 1)
 			continue
 		} else {
