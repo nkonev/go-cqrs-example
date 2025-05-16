@@ -184,6 +184,7 @@ func ConfigureEventProcessor(
 	kafkaConsumerConfig.Version = sarama.V4_0_0_0
 	kafkaConsumerConfig.ClientID = cfg.KafkaConfig.KafkaConsumerConfig.ClientId
 	kafkaConsumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest // need for to work after import
+	kafkaConsumerConfig.Consumer.Offsets.AutoCommit.Interval = cfg.KafkaConfig.KafkaConsumerConfig.OffsetCommitInterval
 
 	eventProcessor, err := cqrs.NewEventGroupProcessorWithConfig(
 		cqrsRouter,

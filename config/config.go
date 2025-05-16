@@ -30,10 +30,11 @@ type KafkaProducerConfig struct {
 }
 
 type KafkaConsumerConfig struct {
-	ReturnErrors        bool          `mapstructure:"returnErrors"`
-	ClientId            string        `mapstructure:"clientId"`
-	NackResendSleep     time.Duration `mapstructure:"nackResendSleep"`
-	ReconnectRetrySleep time.Duration `mapstructure:"reconnectRetrySleep"`
+	ReturnErrors         bool          `mapstructure:"returnErrors"`
+	ClientId             string        `mapstructure:"clientId"`
+	NackResendSleep      time.Duration `mapstructure:"nackResendSleep"`
+	ReconnectRetrySleep  time.Duration `mapstructure:"reconnectRetrySleep"`
+	OffsetCommitInterval time.Duration `mapstructure:"offsetCommitInterval"`
 }
 
 type OtlpConfig struct {
@@ -80,14 +81,22 @@ type AppConfig struct {
 	RestClientConfig RestClientConfig `mapstructure:"http"`
 }
 
-//go:embed config-dev
+//go:embed config
 var configFs embed.FS
 
 func CreateTypedConfig() (*AppConfig, error) {
+	return createTypedConfig("config-dev.yml")
+}
+
+func CreateTestTypedConfig() (*AppConfig, error) {
+	return createTypedConfig("config-test.yml")
+}
+
+func createTypedConfig(filename string) (*AppConfig, error) {
 	conf := AppConfig{}
 	viper.SetConfigType("yaml")
 
-	if embedBytes, err := configFs.ReadFile("config-dev/config.yml"); err != nil {
+	if embedBytes, err := configFs.ReadFile("config/" + filename); err != nil {
 		panic(fmt.Errorf("Fatal error during reading embedded config file: %s \n", err))
 	} else if err := viper.ReadConfig(bytes.NewBuffer(embedBytes)); err != nil {
 		panic(fmt.Errorf("Fatal error during viper reading embedded config file: %s \n", err))

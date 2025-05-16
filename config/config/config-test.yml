@@ -16,6 +16,8 @@ kafka:
     clientId: "chat-consumer"
     nackResendSleep: 100ms
     reconnectRetrySleep: 1s
+    # default 1s
+    offsetCommitInterval: 200ms
 otlp:
   endpoint: localhost:4317
 postgresql:
@@ -34,7 +36,8 @@ server:
 cqrs:
   # sleepBeforeEvent: 500ms
   sleepBeforeEvent: 0
-  checkAreEventsProcessedInterval: 500ms
+  # default 2s
+  checkAreEventsProcessedInterval: 100ms
 # Rest client
 http:
   maxIdleConns: 2

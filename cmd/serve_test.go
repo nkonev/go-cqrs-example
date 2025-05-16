@@ -70,7 +70,7 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 		),
 		fx.Populate(&s),
 		fx.Provide(
-			config.CreateTypedConfig,
+			config.CreateTestTypedConfig,
 			otel.ConfigureTracePropagator,
 			otel.ConfigureTraceProvider,
 			otel.ConfigureTraceExporter,
