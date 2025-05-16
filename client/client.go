@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -41,172 +42,38 @@ func NewRestClient(cfg *config.AppConfig, lgr *slog.Logger) *RestClient {
 }
 
 func (rc *RestClient) CreateChat(ctx context.Context, behalfUserId int64, chatName string) (int64, error) {
-	contentType := "application/json;charset=UTF-8"
-	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + "/chat")
-
-	requestHeaders := map[string][]string{
-		"Accept-Encoding": {"gzip, deflate"},
-		"Accept":          {contentType},
-		"Content-Type":    {contentType},
-		"X-UserId":        {utils.ToString(behalfUserId)},
-	}
-
 	req := handlers.ChatCreateDto{
 		Title: chatName,
 	}
-
-	bytesData, err := json.Marshal(req)
+	resp, err := query[handlers.ChatCreateDto, handlers.IdResponse](ctx, rc, behalfUserId, "POST", "/chat", "chat.Create", &req)
 	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed during marshalling:", "err", err)
 		return 0, err
 	}
-	reader := bytes.NewReader(bytesData)
-
-	nopCloser := ioutil.NopCloser(reader)
-
-	request := &http.Request{
-		Method: "POST",
-		Header: requestHeaders,
-		URL:    fullUrl,
-		Body:   nopCloser,
-	}
-
-	ctx, span := rc.tracer.Start(ctx, "chat.Create")
-	defer span.End()
-	request = request.WithContext(ctx)
-	resp, err := rc.Do(request)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to request get create chat response:", "err", err)
-		return 0, err
-	}
-	defer resp.Body.Close()
-	code := resp.StatusCode
-	if code != 200 {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("create chat response responded non-200 code: ", "code", code)
-		return 0, errors.New("create chat response responded non-200 code")
-	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to decode get create chat response:", "err", err)
-		return 0, err
-	}
-
-	respDto := handlers.IdResponse{}
-	if err = json.Unmarshal(bodyBytes, &respDto); err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed to parse create chat response:", "err", err)
-		return 0, err
-	}
-	return respDto.Id, nil
+	return resp.Id, nil
 }
 
 func (rc *RestClient) GetChatsByUserId(ctx context.Context, behalfUserId int64) ([]cqrs.ChatViewDto, error) {
-	contentType := "application/json;charset=UTF-8"
-	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + "/chat/search")
-
-	requestHeaders := map[string][]string{
-		"Accept-Encoding": {"gzip, deflate"},
-		"Accept":          {contentType},
-		"Content-Type":    {contentType},
-		"X-UserId":        {utils.ToString(behalfUserId)},
-	}
-
-	request := &http.Request{
-		Method: "GET",
-		Header: requestHeaders,
-		URL:    fullUrl,
-	}
-
-	respDto := []cqrs.ChatViewDto{}
-
-	ctx, span := rc.tracer.Start(ctx, "chat.Search")
-	defer span.End()
-	request = request.WithContext(ctx)
-	resp, err := rc.Do(request)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to request get get chat response:", "err", err)
-		return respDto, err
-	}
-	defer resp.Body.Close()
-	code := resp.StatusCode
-	if code != 200 {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("get chat response responded non-200 code: ", "code", code)
-		return respDto, errors.New("get chat response responded non-200 code")
-	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to decode get get chat response:", "err", err)
-		return respDto, err
-	}
-
-	if err = json.Unmarshal(bodyBytes, &respDto); err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed to parse get chat response:", "err", err)
-		return respDto, err
-	}
-	return respDto, nil
+	return query[any, []cqrs.ChatViewDto](ctx, rc, behalfUserId, "GET", "/chat/search", "chat.Search", nil)
 }
 
 func (rc *RestClient) CreateMessage(ctx context.Context, behalfUserId int64, chatId int64, text string) (int64, error) {
-	contentType := "application/json;charset=UTF-8"
-	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + "/chat/" + utils.ToString(chatId) + "/message")
-
-	requestHeaders := map[string][]string{
-		"Accept-Encoding": {"gzip, deflate"},
-		"Accept":          {contentType},
-		"Content-Type":    {contentType},
-		"X-UserId":        {utils.ToString(behalfUserId)},
-	}
-
 	req := handlers.MessageCreateDto{
 		Content: text,
 	}
-
-	bytesData, err := json.Marshal(req)
+	resp, err := query[handlers.MessageCreateDto, handlers.IdResponse](ctx, rc, behalfUserId, "POST", "/chat/"+utils.ToString(chatId)+"/message", "message.Create", &req)
 	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed during marshalling:", "err", err)
 		return 0, err
 	}
-	reader := bytes.NewReader(bytesData)
-
-	nopCloser := ioutil.NopCloser(reader)
-
-	request := &http.Request{
-		Method: "POST",
-		Header: requestHeaders,
-		URL:    fullUrl,
-		Body:   nopCloser,
-	}
-
-	ctx, span := rc.tracer.Start(ctx, "message.Create")
-	defer span.End()
-	request = request.WithContext(ctx)
-	resp, err := rc.Do(request)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to request get create message response:", "err", err)
-		return 0, err
-	}
-	defer resp.Body.Close()
-	code := resp.StatusCode
-	if code != 200 {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("create message response responded non-200 code: ", "code", code)
-		return 0, errors.New("create message response responded non-200 code")
-	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to decode get create message response:", "err", err)
-		return 0, err
-	}
-
-	idResp := handlers.IdResponse{}
-	if err = json.Unmarshal(bodyBytes, &idResp); err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed to parse create message response:", "err", err)
-		return 0, err
-	}
-	return idResp.Id, nil
+	return resp.Id, nil
 }
 
 func (rc *RestClient) GetMessages(ctx context.Context, behalfUserId int64, chatId int64) ([]cqrs.MessageViewDto, error) {
+	return query[any, []cqrs.MessageViewDto](ctx, rc, behalfUserId, "GET", "/chat/"+utils.ToString(chatId)+"/message/search", "message.Search", nil)
+}
+
+func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
 	contentType := "application/json;charset=UTF-8"
-	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + "/chat/" + utils.ToString(chatId) + "/message/search")
+	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + url)
 
 	requestHeaders := map[string][]string{
 		"Accept-Encoding": {"gzip, deflate"},
@@ -215,37 +82,48 @@ func (rc *RestClient) GetMessages(ctx context.Context, behalfUserId int64, chatI
 		"X-UserId":        {utils.ToString(behalfUserId)},
 	}
 
-	request := &http.Request{
-		Method: "GET",
+	var resp ResDto
+
+	httpReq := &http.Request{
+		Method: method,
 		Header: requestHeaders,
 		URL:    fullUrl,
 	}
 
-	var respDto = []cqrs.MessageViewDto{}
+	if req != nil {
+		bytesData, err := json.Marshal(req)
+		if err != nil {
+			logger.LogWithTrace(ctx, rc.lgr).Error(fmt.Sprintf("Failed during marshalling request body for %v:", opName), "err", err)
+			return resp, err
+		}
+		reader := bytes.NewReader(bytesData)
 
-	ctx, span := rc.tracer.Start(ctx, "message.Search")
+		httpReq.Body = ioutil.NopCloser(reader)
+	}
+
+	ctx, span := rc.tracer.Start(ctx, opName)
 	defer span.End()
-	request = request.WithContext(ctx)
-	resp, err := rc.Do(request)
+	httpReq = httpReq.WithContext(ctx)
+	httpResp, err := rc.Do(httpReq)
 	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to request get messages response:", "err", err)
-		return respDto, err
+		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to request %v response:", opName), "err", err)
+		return resp, err
 	}
-	defer resp.Body.Close()
-	code := resp.StatusCode
-	if code != 200 {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("get messages response responded non-200 code: ", "code", code)
-		return respDto, errors.New("get messages response responded non-200 code")
+	defer httpResp.Body.Close()
+	code := httpResp.StatusCode
+	if !(code >= 200 && code < 300) {
+		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("%v response responded non-2xx code: ", opName), "code", code)
+		return resp, errors.New(fmt.Sprintf("%v response responded non-2xx code", opName))
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Warn("Failed to decode get get messages response:", "err", err)
-		return respDto, err
+		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to decode %v response:", opName), "err", err)
+		return resp, err
 	}
 
-	if err = json.Unmarshal(bodyBytes, &respDto); err != nil {
-		logger.LogWithTrace(ctx, rc.lgr).Error("Failed to parse get messages response:", "err", err)
-		return respDto, err
+	if err = json.Unmarshal(bodyBytes, &resp); err != nil {
+		logger.LogWithTrace(ctx, rc.lgr).Error(fmt.Sprintf("Failed to parse %v response:", opName), "err", err)
+		return resp, err
 	}
-	return respDto, nil
+	return resp, nil
 }
