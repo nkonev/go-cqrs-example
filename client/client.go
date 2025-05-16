@@ -67,11 +67,45 @@ func (rc *RestClient) CreateMessage(ctx context.Context, behalfUserId int64, cha
 	return resp.Id, nil
 }
 
+func (rc *RestClient) DeleteMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
+	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "DELETE", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId), "message.Delete", nil)
+	defer func() {
+		if httpResp != nil {
+			httpResp.Body.Close()
+		}
+	}()
+	return err
+}
+
 func (rc *RestClient) GetMessages(ctx context.Context, behalfUserId int64, chatId int64) ([]cqrs.MessageViewDto, error) {
 	return query[any, []cqrs.MessageViewDto](ctx, rc, behalfUserId, "GET", "/chat/"+utils.ToString(chatId)+"/message/search", "message.Search", nil)
 }
 
-func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
+func (rc *RestClient) AddChatParticipants(ctx context.Context, chatId int64, participantIds []int64) error {
+	req := handlers.ParticipantAddDto{
+		ParticipantIds: participantIds,
+	}
+	_, err := query[handlers.ParticipantAddDto, any](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
+	return err
+}
+
+func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]int64, error) {
+	return query[any, []int64](ctx, rc, 0, "GET", "/chat/"+utils.ToString(chatId)+"/participants", "participants.Get", nil)
+}
+
+func (rc *RestClient) ReadMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
+	httpResp, err := queryRaw[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId)+"/read", "message.Read", nil)
+	defer func() {
+		if httpResp != nil {
+			httpResp.Body.Close()
+		}
+	}()
+
+	return err
+}
+
+// You should call 	defer httpResp.Body.Close()
+func queryRaw[ReqDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (*http.Response, error) {
 	contentType := "application/json;charset=UTF-8"
 	fullUrl := utils.StringToUrl("http://localhost" + rc.cfg.HttpServerConfig.Address + url)
 
@@ -81,8 +115,6 @@ func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUs
 		"Content-Type":    {contentType},
 		"X-UserId":        {utils.ToString(behalfUserId)},
 	}
-
-	var resp ResDto
 
 	httpReq := &http.Request{
 		Method: method,
@@ -94,7 +126,7 @@ func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUs
 		bytesData, err := json.Marshal(req)
 		if err != nil {
 			logger.LogWithTrace(ctx, rc.lgr).Error(fmt.Sprintf("Failed during marshalling request body for %v:", opName), "err", err)
-			return resp, err
+			return nil, err
 		}
 		reader := bytes.NewReader(bytesData)
 
@@ -107,14 +139,23 @@ func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUs
 	httpResp, err := rc.Do(httpReq)
 	if err != nil {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to request %v response:", opName), "err", err)
-		return resp, err
+		return nil, err
 	}
-	defer httpResp.Body.Close()
 	code := httpResp.StatusCode
 	if !(code >= 200 && code < 300) {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("%v response responded non-2xx code: ", opName), "code", code)
-		return resp, errors.New(fmt.Sprintf("%v response responded non-2xx code", opName))
+		return nil, errors.New(fmt.Sprintf("%v response responded non-2xx code", opName))
 	}
+
+	return httpResp, err
+}
+
+func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUserId int64, method, url, opName string, req *ReqDto) (ResDto, error) {
+	var err error
+	httpResp, err := queryRaw(ctx, rc, behalfUserId, method, url, opName, req)
+	defer httpResp.Body.Close()
+
+	var resp ResDto
 	bodyBytes, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to decode %v response:", opName), "err", err)

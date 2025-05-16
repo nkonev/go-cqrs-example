@@ -464,7 +464,7 @@ func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *
 
 func (m *CommonProjection) GetParticipants(ctx context.Context, chatId int64) ([]int64, error) {
 	res := []int64{}
-	rows, err := m.db.QueryContext(ctx, "select user_id from chat_participant where chat_id = $1;", chatId)
+	rows, err := m.db.QueryContext(ctx, "select user_id from chat_participant where chat_id = $1 order by user_id", chatId)
 	if err != nil {
 		return res, err
 	}
