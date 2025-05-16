@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+	"io"
 	"io/ioutil"
 	"log/slog"
 	"main.go/config"
@@ -160,7 +161,7 @@ func query[ReqDto any, ResDto any](ctx context.Context, rc *RestClient, behalfUs
 	}()
 
 	var resp ResDto
-	bodyBytes, err := ioutil.ReadAll(httpResp.Body)
+	bodyBytes, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to decode %v response:", opName), "err", err)
 		return resp, err
