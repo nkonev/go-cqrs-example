@@ -59,6 +59,7 @@ type PostgreSQLConfig struct {
 	MaxIdleConnections int             `mapstructure:"maxIdleConnections"`
 	MaxLifetime        time.Duration   `mapstructure:"maxLifetime"`
 	MigrationConfig    MigrationConfig `mapstructure:"migration"`
+	PrettyLog          bool            `mapstructure:"prettyLog"`
 }
 
 type CqrsConfig struct {

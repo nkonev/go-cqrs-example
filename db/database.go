@@ -23,13 +23,18 @@ import (
 	"time"
 )
 
-func makeLoggingDriver(slogLogger *slog.Logger) driver.Driver {
+func makeLoggingDriver(cfg *config.AppConfig, slogLogger *slog.Logger) driver.Driver {
 	return proxy.NewProxyContext(&pgxStd.Driver{}, &proxy.HooksContext{
 		PreExec: func(_ context.Context, _ *proxy.Stmt, _ []driver.NamedValue) (interface{}, error) {
 			return time.Now(), nil
 		},
 		PostExec: func(c context.Context, ctx interface{}, stmt *proxy.Stmt, args []driver.NamedValue, _ driver.Result, err error) error {
-			logger.LogWithTrace(c, slogLogger).Debug(fmt.Sprintf("Exec: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time))))
+			s := fmt.Sprintf("Exec: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time)))
+			if cfg.PostgreSQLConfig.PrettyLog {
+				fmt.Println("[SQL] trace_id=" + logger.GetTraceId(c) + ": " + s)
+			} else {
+				logger.LogWithTrace(c, slogLogger).Debug(s)
+			}
 			return err
 		},
 
@@ -37,7 +42,12 @@ func makeLoggingDriver(slogLogger *slog.Logger) driver.Driver {
 			return time.Now(), nil
 		},
 		PostQuery: func(c context.Context, ctx interface{}, stmt *proxy.Stmt, args []driver.NamedValue, rows driver.Rows, err error) error {
-			logger.LogWithTrace(c, slogLogger).Debug(fmt.Sprintf("Query: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time))))
+			s := fmt.Sprintf("Query: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time)))
+			if cfg.PostgreSQLConfig.PrettyLog {
+				fmt.Println("[SQL] trace_id=" + logger.GetTraceId(c) + ": " + s)
+			} else {
+				logger.LogWithTrace(c, slogLogger).Debug(s)
+			}
 			return err
 		},
 	})
@@ -158,7 +168,7 @@ func ConfigureDatabase(
 	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*DB, error) {
-	dri := makeLoggingDriver(slogLogger)
+	dri := makeLoggingDriver(cfg, slogLogger)
 
 	otDriver := otelsql.WrapDriver(dri, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
