@@ -103,7 +103,11 @@ func ConfigureCqrsRouter(
 				logger.LogWithTrace(msg.Context(), slogLogger).Info("Sleeping")
 				time.Sleep(cfg.CqrsConfig.SleepBeforeEvent)
 			}
+
 			logger.LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
+			if cfg.CqrsConfig.Dump {
+				fmt.Printf("[kafka subscriber] trace_id="+logger.GetTraceId(msg.Context())+": body: %v\n", string(msg.Payload))
+			}
 			return h(msg)
 		}
 	})

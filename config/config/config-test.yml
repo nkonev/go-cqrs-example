@@ -39,6 +39,7 @@ cqrs:
   sleepBeforeEvent: 0
   # default 2s
   checkAreEventsProcessedInterval: 100ms
+  dump: true
 # Rest client
 http:
   maxIdleConns: 2

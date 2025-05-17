@@ -65,6 +65,7 @@ type PostgreSQLConfig struct {
 type CqrsConfig struct {
 	SleepBeforeEvent                time.Duration `mapstructure:"sleepBeforeEvent"`
 	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
+	Dump                            bool          `mapstructure:"dump"`
 }
 
 type RestClientConfig struct {
