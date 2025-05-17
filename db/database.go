@@ -3,24 +3,60 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"github.com/XSAM/otelsql"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
-	_ "github.com/jackc/pgx/v4/stdlib"
+	pgxStd "github.com/jackc/pgx/v4/stdlib"
 	proxy "github.com/shogo82148/go-sql-proxy"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
 	"go.uber.org/fx"
 	"log/slog"
 	"main.go/config"
+	"main.go/logger"
 	"net/http"
+	"strings"
+	"time"
 )
 
-func init() {
-	proxy.RegisterTracer()
+func makeLoggingDriver(slogLogger *slog.Logger) driver.Driver {
+	return proxy.NewProxyContext(&pgxStd.Driver{}, &proxy.HooksContext{
+		PreExec: func(_ context.Context, _ *proxy.Stmt, _ []driver.NamedValue) (interface{}, error) {
+			return time.Now(), nil
+		},
+		PostExec: func(c context.Context, ctx interface{}, stmt *proxy.Stmt, args []driver.NamedValue, _ driver.Result, err error) error {
+			logger.LogWithTrace(c, slogLogger).Debug(fmt.Sprintf("Exec: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time))))
+			return err
+		},
+
+		PreQuery: func(c context.Context, stmt *proxy.Stmt, args []driver.NamedValue) (interface{}, error) {
+			return time.Now(), nil
+		},
+		PostQuery: func(c context.Context, ctx interface{}, stmt *proxy.Stmt, args []driver.NamedValue, rows driver.Rows, err error) error {
+			logger.LogWithTrace(c, slogLogger).Debug(fmt.Sprintf("Query: %s; args = %v (%s)\n", stmt.QueryString, writeNamedValues(args), time.Since(ctx.(time.Time))))
+			return err
+		},
+	})
+}
+
+func writeNamedValues(args []driver.NamedValue) string {
+	sb := strings.Builder{}
+	for i, arg := range args {
+		if i != 0 {
+			sb.WriteString(fmt.Sprintf(", "))
+		}
+		if len(arg.Name) > 0 {
+			sb.WriteString(arg.Name)
+			sb.WriteString(":")
+		}
+		sb.WriteString(fmt.Sprintf("%#v", arg.Value))
+	}
+
+	return sb.String()
 }
 
 type DB struct {
@@ -122,13 +158,18 @@ func ConfigureDatabase(
 	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*DB, error) {
+	dri := makeLoggingDriver(slogLogger)
 
-	db, err := otelsql.Open("pgx:trace", cfg.PostgreSQLConfig.Url, otelsql.WithAttributes(
+	otDriver := otelsql.WrapDriver(dri, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
 	))
+
+	connector, err := otDriver.(driver.DriverContext).OpenConnector(cfg.PostgreSQLConfig.Url)
 	if err != nil {
 		return nil, err
 	}
+	db := sql.OpenDB(connector)
+
 	err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
 	), otelsql.WithTracerProvider(tp))
