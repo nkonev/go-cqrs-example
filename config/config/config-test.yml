@@ -43,3 +43,4 @@ http:
   maxIdleConns: 2
   idleConnTimeout: '10s'
   disableCompression: false
+  dump: true

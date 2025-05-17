@@ -18,6 +18,7 @@ import (
 	"main.go/logger"
 	"main.go/utils"
 	"net/http"
+	"net/http/httputil"
 )
 
 type RestClient struct {
@@ -126,6 +127,16 @@ func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUse
 	ctx, span := rc.tracer.Start(ctx, opName)
 	defer span.End()
 	httpReq = httpReq.WithContext(ctx)
+
+	if rc.cfg.RestClientConfig.Dump {
+		dumpReq, err := httputil.DumpRequestOut(httpReq, true)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println(">>>")
+		fmt.Println(string(dumpReq))
+	}
+
 	httpResp, err := rc.Do(httpReq)
 	if err != nil {
 		logger.LogWithTrace(ctx, rc.lgr).Warn(fmt.Sprintf("Failed to request %v response:", opName), "err", err)
@@ -137,6 +148,14 @@ func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUse
 		return nil, errors.New(fmt.Sprintf("%v response responded non-2xx code", opName))
 	}
 
+	if rc.cfg.RestClientConfig.Dump {
+		dumpResp, err := httputil.DumpResponse(httpResp, true)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println("<<<")
+		fmt.Println(string(dumpResp))
+	}
 	return httpResp, err
 }
 

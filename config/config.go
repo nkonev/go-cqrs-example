@@ -70,6 +70,7 @@ type RestClientConfig struct {
 	MaxIdleConns       int           `mapstructure:"maxIdleConns"`
 	IdleConnTimeout    time.Duration `mapstructure:"idleConnTimeout"`
 	DisableCompression bool          `mapstructure:"disableCompression"`
+	Dump               bool          `mapstructure:"dump"`
 }
 
 type AppConfig struct {
