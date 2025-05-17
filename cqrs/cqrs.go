@@ -104,9 +104,8 @@ func ConfigureCqrsRouter(
 				time.Sleep(cfg.CqrsConfig.SleepBeforeEvent)
 			}
 
-			logger.LogWithTrace(msg.Context(), slogLogger).Debug("Received message", "metadata", msg.Metadata)
 			if cfg.CqrsConfig.Dump {
-				fmt.Printf("[kafka subscriber] trace_id="+logger.GetTraceId(msg.Context())+": body: %v\n", string(msg.Payload))
+				fmt.Printf("[kafka subscriber] Received message: trace_id=%s, metadata=%v, body: %v\n", logger.GetTraceId(msg.Context()), msg.Metadata, string(msg.Payload))
 			}
 			return h(msg)
 		}
@@ -169,7 +168,7 @@ func ConfigureEventBus(
 		Logger:    watermillLoggerAdapter,
 		OnPublish: func(params cqrs.OnEventSendParams) error {
 			if cfg.CqrsConfig.Dump {
-				fmt.Printf("[kafka publisher] trace_id="+logger.GetTraceId(params.Message.Context())+": body: %v\n", string(params.Message.Payload))
+				fmt.Printf("[kafka publisher] Sending message: trace_id=%s, metadata=%v, body: %v\n", logger.GetTraceId(params.Message.Context()), params.Message.Metadata, string(params.Message.Payload))
 			}
 			return nil
 		},
