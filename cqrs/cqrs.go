@@ -167,6 +167,12 @@ func ConfigureEventBus(
 		},
 		Marshaler: cqrsMarshaler,
 		Logger:    watermillLoggerAdapter,
+		OnPublish: func(params cqrs.OnEventSendParams) error {
+			if cfg.CqrsConfig.Dump {
+				fmt.Printf("[kafka publisher] trace_id="+logger.GetTraceId(params.Message.Context())+": body: %v\n", string(params.Message.Payload))
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return nil, err
