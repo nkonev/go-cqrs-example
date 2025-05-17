@@ -10,6 +10,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	_ "github.com/jackc/pgx/v4/stdlib"
+	proxy "github.com/shogo82148/go-sql-proxy"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
 	"go.uber.org/fx"
@@ -117,8 +118,9 @@ func ConfigureDatabase(
 	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*DB, error) {
+	proxy.RegisterTracer()
 
-	db, err := otelsql.Open("pgx", cfg.PostgreSQLConfig.Url, otelsql.WithAttributes(
+	db, err := otelsql.Open("pgx:trace", cfg.PostgreSQLConfig.Url, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
 	))
 	if err != nil {
@@ -133,6 +135,7 @@ func ConfigureDatabase(
 	db.SetConnMaxLifetime(cfg.PostgreSQLConfig.MaxLifetime)
 	db.SetMaxIdleConns(cfg.PostgreSQLConfig.MaxIdleConnections)
 	db.SetMaxOpenConns(cfg.PostgreSQLConfig.MaxOpenConnections)
+
 	err = db.Ping()
 	if err != nil {
 		return nil, err

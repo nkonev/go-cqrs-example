@@ -10,6 +10,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.15.1
 	github.com/jackc/pgx/v4 v4.15.0
 	github.com/nkonev/watermill-opentelemetry v0.1.11
+	github.com/shogo82148/go-sql-proxy v0.7.2
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.10.0
