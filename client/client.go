@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"io"
-	"io/ioutil"
 	"log/slog"
 	"main.go/config"
 	"main.go/cqrs"
@@ -121,7 +120,7 @@ func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUse
 		}
 		reader := bytes.NewReader(bytesData)
 
-		httpReq.Body = ioutil.NopCloser(reader)
+		httpReq.Body = io.NopCloser(reader)
 	}
 
 	ctx, span := rc.tracer.Start(ctx, opName)
