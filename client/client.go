@@ -133,7 +133,7 @@ func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUse
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println(">>>")
+		fmt.Println("client >>>")
 		fmt.Println(string(dumpReq))
 	}
 
@@ -153,7 +153,7 @@ func queryRawResponse[ReqDto any](ctx context.Context, rc *RestClient, behalfUse
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("<<<")
+		fmt.Println("client <<<")
 		fmt.Println(string(dumpResp))
 	}
 	return httpResp, err

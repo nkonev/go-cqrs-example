@@ -19,6 +19,10 @@ import (
 	"net/http"
 )
 
+func init() {
+	proxy.RegisterTracer()
+}
+
 type DB struct {
 	*sql.DB
 	lgr *slog.Logger
@@ -118,7 +122,6 @@ func ConfigureDatabase(
 	tp *sdktrace.TracerProvider,
 	lc fx.Lifecycle,
 ) (*DB, error) {
-	proxy.RegisterTracer()
 
 	db, err := otelsql.Open("pgx:trace", cfg.PostgreSQLConfig.Url, otelsql.WithAttributes(
 		semconv.DBSystemPostgreSQL,
