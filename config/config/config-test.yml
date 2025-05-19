@@ -40,6 +40,10 @@ cqrs:
   # default 2s
   checkAreEventsProcessedInterval: 100ms
   dump: true
+  import:
+    file: ./events.json
+  export:
+    file: ./events.json
 # Rest client
 http:
   maxIdleConns: 2

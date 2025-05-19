@@ -66,6 +66,8 @@ type CqrsConfig struct {
 	SleepBeforeEvent                time.Duration `mapstructure:"sleepBeforeEvent"`
 	CheckAreEventsProcessedInterval time.Duration `mapstructure:"checkAreEventsProcessedInterval"`
 	Dump                            bool          `mapstructure:"dump"`
+	ExportConfig                    ExportConfig  `mapstructure:"export"`
+	ImportConfig                    ImportConfig  `mapstructure:"import"`
 }
 
 type RestClientConfig struct {
@@ -73,6 +75,14 @@ type RestClientConfig struct {
 	IdleConnTimeout    time.Duration `mapstructure:"idleConnTimeout"`
 	DisableCompression bool          `mapstructure:"disableCompression"`
 	Dump               bool          `mapstructure:"dump"`
+}
+
+type ImportConfig struct {
+	File string `mapstructure:"file"`
+}
+
+type ExportConfig struct {
+	File string `mapstructure:"file"`
 }
 
 type AppConfig struct {

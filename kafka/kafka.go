@@ -8,6 +8,7 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/Jeffail/gabs/v2"
 	"go.uber.org/fx"
+	"io"
 	"log/slog"
 	"main.go/config"
 	"main.go/utils"
@@ -287,6 +288,21 @@ func Export(
 	}
 	defer newConsumer.Close()
 
+	var writer io.Writer
+	var f *os.File
+	if cfg.CqrsConfig.ExportConfig.File == "stdout" {
+		writer = os.Stdout
+	} else {
+		f, err = os.Create(cfg.CqrsConfig.ExportConfig.File)
+		if err != nil {
+			return err
+		}
+		writer = f
+	}
+	if f != nil {
+		defer f.Close()
+	}
+
 	for i := range cfg.KafkaConfig.NumPartitions {
 		partitionMaxOffset := maxOffsets[i]
 		if partitionMaxOffset == 0 {
@@ -339,7 +355,10 @@ func Export(
 				return err
 			}
 
-			fmt.Println(jsonObj.String())
+			_, err = fmt.Fprintln(writer, jsonObj.String())
+			if err != nil {
+				return err
+			}
 
 			if kafkaMessage.Offset >= partitionMaxOffset-1 {
 				slogLogger.Info("Reached max offset, closing partitionConsumer", "partition", i)
@@ -366,7 +385,22 @@ func Import(
 	}
 	defer producer.Close()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	var reader io.Reader
+	var f *os.File
+	if cfg.CqrsConfig.ExportConfig.File == "stdin" {
+		reader = os.Stdin
+	} else {
+		f, err = os.Open(cfg.CqrsConfig.ExportConfig.File)
+		if err != nil {
+			return err
+		}
+		reader = f
+	}
+	if f != nil {
+		defer f.Close()
+	}
+
+	scanner := bufio.NewScanner(reader)
 	i := 0
 	for scanner.Scan() {
 		i++

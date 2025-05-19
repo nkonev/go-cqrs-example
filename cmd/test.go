@@ -19,11 +19,22 @@ import (
 	"time"
 )
 
-func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
-	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+func TestMain(m *testing.M) {
+	setup()
+	retCode := m.Run()
+	shutdown()
+	os.Exit(retCode)
+}
 
+func setup() {
+
+}
+
+func shutdown() {
+
+}
+
+func resetInfra(slogLogger *slog.Logger) {
 	appFx := fx.New(
 		fx.Supply(
 			slogLogger,
@@ -45,7 +56,9 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 		),
 	)
 	appFx.Run()
+}
 
+func runTestFunc(slogLogger *slog.Logger, t *testing.T, testFunc interface{}) {
 	var s fx.Shutdowner
 	appTestFx := fxtest.New(
 		t,
@@ -81,7 +94,16 @@ func startAppFull(t *testing.T, testFunc interface{}) *fxtest.App {
 	)
 	defer appTestFx.RequireStart().RequireStop()
 	assert.NoError(t, s.Shutdown(), "error in app shutdown")
-	return appTestFx
+}
+
+func startAppFull(t *testing.T, testFunc interface{}) {
+	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	resetInfra(slogLogger)
+
+	runTestFunc(slogLogger, t, testFunc)
 }
 
 func waitForHealthCheck(slogLogger *slog.Logger, restClient *client.RestClient, cfg *config.AppConfig) {

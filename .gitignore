@@ -12,3 +12,4 @@ playwright-report/
 __debug_bin
 .vscode/
 *.log
+events.json

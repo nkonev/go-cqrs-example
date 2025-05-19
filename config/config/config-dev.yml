@@ -40,6 +40,10 @@ cqrs:
   # default 2s
   checkAreEventsProcessedInterval: 2s
   dump: true
+  import:
+    file: stdin
+  export:
+    file: stdout
 # Rest client
 http:
   maxIdleConns: 2

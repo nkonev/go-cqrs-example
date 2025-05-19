@@ -10,24 +10,8 @@ import (
 	"main.go/config"
 	"main.go/cqrs"
 	"main.go/kafka"
-	"os"
 	"testing"
 )
-
-func TestMain(m *testing.M) {
-	setup()
-	retCode := m.Run()
-	shutdown()
-	os.Exit(retCode)
-}
-
-func setup() {
-
-}
-
-func shutdown() {
-
-}
 
 func TestUnreads(t *testing.T) {
 	startAppFull(t, func(
