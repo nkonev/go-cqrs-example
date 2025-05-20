@@ -1,7 +1,7 @@
 kafka:
   bootstrapServers:
     - 127.0.0.1:9092
-  topic: events
+  topic: event
   numPartitions: 3
   replicationFactor: 1
   retention: "-1"
@@ -41,9 +41,9 @@ cqrs:
   checkAreEventsProcessedInterval: 100ms
   dump: true
   import:
-    file: ./events.json
+    file: ./event.json
   export:
-    file: ./events.json
+    file: ./event.json
 # Rest client
 http:
   maxIdleConns: 2

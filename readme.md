@@ -74,10 +74,10 @@ docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstra
 docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --group CommonProjection --offsets
 
 # show kafka topic's messages
-docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic events --from-beginning --property print.key=true --property print.headers=true
+docker compose exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic event --from-beginning --property print.key=true --property print.headers=true
 
 # non-actual resetting - missed fast-forwarding of sequences
-docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic events
+docker compose exec -it kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group CommonProjection --reset-offsets --to-earliest --execute --topic event
 # reset db
 docker rm -f postgresql
 docker volume rm go-cqrs-example_postgres_data
@@ -113,12 +113,12 @@ curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat/1/message' -d '{"content": "new message"}'
 Ctrl + C
 
-go run . export > /tmp/events.json
+go run . export > /tmp/event.json
 
 docker compose down -v
 docker compose up -d
 
-cat /tmp/events.json | go run . import
+cat /tmp/event.json | go run . import
 go run . serve
 
 curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq

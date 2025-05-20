@@ -80,7 +80,11 @@ func RunDeleteTopic(
 	slogLogger.Warn("Removing topic", "topic", cfg.KafkaConfig.Topic)
 	err := kafkaAdmin.DeleteTopic(cfg.KafkaConfig.Topic)
 	if err != nil {
-		return err
+		if errors.Is(err, sarama.ErrUnknownTopicOrPartition) {
+			slogLogger.Warn("Topic does not exists", "topic", cfg.KafkaConfig.Topic)
+		} else {
+			return err
+		}
 	}
 	slogLogger.Warn("Topic was removed", "topic", cfg.KafkaConfig.Topic)
 	return nil
