@@ -14,6 +14,7 @@ import (
 	"main.go/kafka"
 	"main.go/otel"
 	"os"
+	"strings"
 )
 
 // serveCmd represents the serve command
@@ -41,8 +42,18 @@ func init() {
 }
 
 func RunServe() {
-	slogLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	slogLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "level" {
+				return slog.Attr{
+					Key:   "level",
+					Value: slog.StringValue(strings.ToLower(a.Value.String())),
+				}
+			} else {
+				return a
+			}
+		},
 	}))
 
 	slogLogger.Info("Start serve command")
