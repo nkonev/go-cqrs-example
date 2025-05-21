@@ -143,6 +143,17 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		return 0, err
 	}
 
+	cs := &ChatLastMessageSet{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: participantIds,
+		ChatId:         s.ChatId,
+	}
+
+	err = eventBus.Publish(ctx, cs)
+	if err != nil {
+		return 0, err
+	}
+
 	return messageId, err
 }
 
@@ -203,5 +214,20 @@ func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, 
 		ParticipantIds: participantIds,
 		ChatId:         s.ChatId,
 	}
-	return eventBus.Publish(ctx, ui)
+	err = eventBus.Publish(ctx, ui)
+	if err != nil {
+		return err
+	}
+
+	cs := &ChatLastMessageSet{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: participantIds,
+		ChatId:         s.ChatId,
+	}
+
+	err = eventBus.Publish(ctx, cs)
+	if err != nil {
+		return err
+	}
+	return nil
 }

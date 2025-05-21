@@ -235,6 +235,7 @@ func ConfigureEventProcessor(
 		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageReaded),
 		cqrs.NewGroupEventHandler(commonProjection.OnUnreadMessageRefreshed),
 		cqrs.NewGroupEventHandler(commonProjection.OnMessageRemoved),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatLastMessageSet),
 	)
 	if err != nil {
 		return nil, err

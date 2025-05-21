@@ -374,6 +374,32 @@ func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *
 	return nil
 }
 
+func (m *CommonProjection) OnChatLastMessageSet(ctx context.Context, event *ChatLastMessageSet) error {
+	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
+
+		_, err := tx.ExecContext(ctx, `
+				with last_message as (
+					select m.owner_id, m.content from message m where m.chat_id = $2 and m.id = (select max(mm.id) from message mm where mm.chat_id = $2)
+				)
+				UPDATE chat_user_view 
+				SET 
+					last_message_content = (select content from last_message),
+					last_message_owner_id = (select owner_id from last_message)
+				WHERE user_id = any($1) and id = $2;
+			`, event.ParticipantIds, event.ChatId)
+		if err != nil {
+			return fmt.Errorf("error during setting last message: %w", err)
+		}
+
+		return nil
+	})
+
+	if errOuter != nil {
+		return errOuter
+	}
+	return nil
+}
+
 func (m *CommonProjection) setUnreadMessages(ctx context.Context, tx *db.Tx, participantIds []int64, chatId, messageId int64, needSet, needRefresh bool) error {
 	_, err := tx.ExecContext(ctx, `
 		with normalized_user as (
@@ -546,10 +572,12 @@ func (m *CommonProjection) GetMessages(ctx context.Context, chatId int64) ([]Mes
 }
 
 type ChatViewDto struct {
-	Id             int64  `json:"id"`
-	Title          string `json:"title"`
-	Pinned         bool   `json:"pinned"`
-	UnreadMessages int64  `json:"unreadMessages"`
+	Id                 int64   `json:"id"`
+	Title              string  `json:"title"`
+	Pinned             bool    `json:"pinned"`
+	UnreadMessages     int64   `json:"unreadMessages"`
+	LastMessageOwnerId *int64  `json:"lastMessageOwnerId"`
+	LastMessageContent *string `json:"lastMessageContent"`
 }
 
 func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([]ChatViewDto, error) {
@@ -559,7 +587,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	// so querying a page (using keyset) from a large amount of chats is fast
 	// it's the root cause why we use cqrs
 	rows, err := m.db.QueryContext(ctx, `
-		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0)
+		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0), ch.last_message_owner_id, ch.last_message_content
 		from chat_user_view ch
 		join chat_common c on ch.id = c.id
 		join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
@@ -572,7 +600,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	defer rows.Close()
 	for rows.Next() {
 		var cd ChatViewDto
-		err = rows.Scan(&cd.Id, &cd.Title, &cd.Pinned, &cd.UnreadMessages)
+		err = rows.Scan(&cd.Id, &cd.Title, &cd.Pinned, &cd.UnreadMessages, &cd.LastMessageOwnerId, &cd.LastMessageContent)
 		if err != nil {
 			return ma, err
 		}
