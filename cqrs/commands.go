@@ -130,6 +130,7 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		return 0, err
 	}
 
+	// TODO merge 2 events into 1 => RefreshChatViews with unreadMessagesMode [Increase | Refresh]
 	ui := &UnreadMessageIncreased{
 		AdditionalData: s.AdditionalData,
 		ParticipantIds: participantIds,
