@@ -327,62 +327,64 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 	return nil
 }
 
-func (m *CommonProjection) OnUnreadMessageIncreased(ctx context.Context, event *UnreadMessageIncreased) error {
+func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatViewRefreshed) error {
 	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
-		participantIdsWithoutOwner := utils.GetSliceWithout(event.OwnerId, event.ParticipantIds)
-		var ownerId *int64
-		if slices.Contains(event.ParticipantIds, event.OwnerId) { // for batches without owner
-			ownerId = &event.OwnerId
-		}
+		if event.UnreadMessagesAction == UnreadMessagesActionIncrease {
+			participantIdsWithoutOwner := utils.GetSliceWithout(event.OwnerId, event.ParticipantIds)
+			var ownerId *int64
+			if slices.Contains(event.ParticipantIds, event.OwnerId) { // for batches without owner
+				ownerId = &event.OwnerId
+			}
 
-		// not owners
-		if len(participantIdsWithoutOwner) > 0 {
-			_, err := tx.ExecContext(ctx, `
+			// not owners
+			if len(participantIdsWithoutOwner) > 0 {
+				_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET unread_messages = unread_messages + $3
 				WHERE user_id = any($1) and chat_id = $2;
 			`, participantIdsWithoutOwner, event.ChatId, event.IncreaseOn)
-			if err != nil {
-				return fmt.Errorf("error during increasing unread messages: %w", err)
+				if err != nil {
+					return fmt.Errorf("error during increasing unread messages: %w", err)
+				}
 			}
-		}
 
-		// owner
-		if ownerId != nil {
-			_, err := tx.ExecContext(ctx, `
+			// owner
+			if ownerId != nil {
+				_, err := tx.ExecContext(ctx, `
 				UPDATE unread_messages_user_view 
 				SET last_message_id = (select max(id) from message where chat_id = $2)
 				WHERE (user_id, chat_id) = ($1, $2);
 			`, *ownerId, event.ChatId)
+				if err != nil {
+					return fmt.Errorf("error during increasing unread messages: %w", err)
+				}
+			}
+
+			_, err := tx.ExecContext(ctx, `
+			update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
+		`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
 			if err != nil {
-				return fmt.Errorf("error during increasing unread messages: %w", err)
+				return err
+			}
+		} else if event.UnreadMessagesAction == UnreadMessagesActionRefresh {
+			err := m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true, true)
+			if err != nil {
+				return err
 			}
 		}
 
 		_, err := tx.ExecContext(ctx, `
-			update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
-		`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
-		if err != nil {
-			return err
-		}
-		return nil
-	})
-
-	if errOuter != nil {
-		return errOuter
-	}
-	return nil
-}
-
-func (m *CommonProjection) OnChatLastMessageSet(ctx context.Context, event *ChatLastMessageSet) error {
-	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
-
-		_, err := tx.ExecContext(ctx, `
 				with last_message as (
-					select m.owner_id, m.content from message m where m.chat_id = $2 and m.id = (select max(mm.id) from message mm where mm.chat_id = $2)
+					select 
+						m.id,
+						m.owner_id, 
+						m.content 
+					from message m 
+					where m.chat_id = $2 and m.id = (select max(mm.id) from message mm where mm.chat_id = $2)
 				)
 				UPDATE chat_user_view 
 				SET 
+					last_message_id = (select id from last_message),
 					last_message_content = (select content from last_message),
 					last_message_owner_id = (select owner_id from last_message)
 				WHERE user_id = any($1) and id = $2;
@@ -476,18 +478,6 @@ func (m *CommonProjection) OnUnreadMessageReaded(ctx context.Context, event *Mes
 	return nil
 }
 
-func (m *CommonProjection) OnUnreadMessageRefreshed(ctx context.Context, event *UnreadMessageRefreshed) error {
-	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
-		return m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true, true)
-	})
-
-	if errOuter != nil {
-		return fmt.Errorf("error during refresh unread messages: %w", errOuter)
-	}
-
-	return nil
-}
-
 func (m *CommonProjection) GetParticipants(ctx context.Context, chatId int64) ([]int64, error) {
 	res := []int64{}
 	rows, err := m.db.QueryContext(ctx, "select user_id from chat_participant where chat_id = $1 order by user_id", chatId)
@@ -576,6 +566,7 @@ type ChatViewDto struct {
 	Title              string  `json:"title"`
 	Pinned             bool    `json:"pinned"`
 	UnreadMessages     int64   `json:"unreadMessages"`
+	LastMessageId      *int64  `json:"lastMessageId"`
 	LastMessageOwnerId *int64  `json:"lastMessageOwnerId"`
 	LastMessageContent *string `json:"lastMessageContent"`
 }
@@ -587,7 +578,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	// so querying a page (using keyset) from a large amount of chats is fast
 	// it's the root cause why we use cqrs
 	rows, err := m.db.QueryContext(ctx, `
-		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0), ch.last_message_owner_id, ch.last_message_content
+		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0), ch.last_message_id, ch.last_message_owner_id, ch.last_message_content
 		from chat_user_view ch
 		join chat_common c on ch.id = c.id
 		join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
@@ -600,7 +591,7 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	defer rows.Close()
 	for rows.Next() {
 		var cd ChatViewDto
-		err = rows.Scan(&cd.Id, &cd.Title, &cd.Pinned, &cd.UnreadMessages, &cd.LastMessageOwnerId, &cd.LastMessageContent)
+		err = rows.Scan(&cd.Id, &cd.Title, &cd.Pinned, &cd.UnreadMessages, &cd.LastMessageId, &cd.LastMessageOwnerId, &cd.LastMessageContent)
 		if err != nil {
 			return ma, err
 		}

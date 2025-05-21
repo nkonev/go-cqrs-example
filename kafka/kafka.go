@@ -208,6 +208,9 @@ func isEndOnAllPartitions(
 
 	maxOffsets, err := getMaxOffsets(slogLogger, cfg, client)
 	if err != nil {
+		if errors.Is(err, sarama.ErrNotLeaderForPartition) {
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -233,7 +236,7 @@ func isEndOnAllPartitions(
 	for i := range cfg.KafkaConfig.NumPartitions {
 		partitionManager, err := offsetManager.ManagePartition(cfg.KafkaConfig.Topic, i)
 		if err != nil {
-			if strings.Contains(err.Error(), "response did not contain all the expected topic/partition blocks") {
+			if errors.Is(err, sarama.ErrIncompleteResponse) {
 				slogLogger.Info("Skipping partition", "partition", i)
 				return false, nil
 			}

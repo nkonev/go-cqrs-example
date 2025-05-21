@@ -130,27 +130,16 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		return 0, err
 	}
 
-	// TODO merge 2 events into 1 => RefreshChatViews with unreadMessagesMode [Increase | Refresh]
-	ui := &UnreadMessageIncreased{
-		AdditionalData: s.AdditionalData,
-		ParticipantIds: participantIds,
-		ChatId:         s.ChatId,
-		IncreaseOn:     1,
-		OwnerId:        s.OwnerId,
+	ui := &ChatViewRefreshed{
+		AdditionalData:       s.AdditionalData,
+		ParticipantIds:       participantIds,
+		ChatId:               s.ChatId,
+		UnreadMessagesAction: UnreadMessagesActionIncrease,
+		IncreaseOn:           1,
+		OwnerId:              s.OwnerId,
 	}
 
 	err = eventBus.Publish(ctx, ui)
-	if err != nil {
-		return 0, err
-	}
-
-	cs := &ChatLastMessageSet{
-		AdditionalData: s.AdditionalData,
-		ParticipantIds: participantIds,
-		ChatId:         s.ChatId,
-	}
-
-	err = eventBus.Publish(ctx, cs)
 	if err != nil {
 		return 0, err
 	}
@@ -210,23 +199,15 @@ func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, 
 		return err
 	}
 
-	ui := &UnreadMessageRefreshed{
-		AdditionalData: s.AdditionalData,
-		ParticipantIds: participantIds,
-		ChatId:         s.ChatId,
+	ui := &ChatViewRefreshed{
+		AdditionalData:       s.AdditionalData,
+		ParticipantIds:       participantIds,
+		ChatId:               s.ChatId,
+		UnreadMessagesAction: UnreadMessagesActionRefresh,
+		OwnerId:              userId,
 	}
+
 	err = eventBus.Publish(ctx, ui)
-	if err != nil {
-		return err
-	}
-
-	cs := &ChatLastMessageSet{
-		AdditionalData: s.AdditionalData,
-		ParticipantIds: participantIds,
-		ChatId:         s.ChatId,
-	}
-
-	err = eventBus.Publish(ctx, cs)
 	if err != nil {
 		return err
 	}
