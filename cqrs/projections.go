@@ -218,7 +218,16 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 		}
 
 		// recalc in case an user was added after
-		return m.initializeMessageUnreadMultipleParticipants(ctx, tx, event.ParticipantIds, event.ChatId)
+		err = m.initializeMessageUnreadMultipleParticipants(ctx, tx, event.ParticipantIds, event.ChatId)
+		if err != nil {
+			return err
+		}
+
+		err = m.setLastMessage(ctx, tx, event.ParticipantIds, event.ChatId)
+		if err != nil {
+			return err
+		}
+		return nil
 	})
 	if errOuter != nil {
 		return errOuter
@@ -327,6 +336,30 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 	return nil
 }
 
+func (m *CommonProjection) setLastMessage(ctx context.Context, tx *db.Tx, participantIds []int64, chatId int64) error {
+
+	_, err := tx.ExecContext(ctx, `
+				with last_message as (
+					select 
+						m.id,
+						m.owner_id, 
+						m.content 
+					from message m 
+					where m.chat_id = $2 and m.id = (select max(mm.id) from message mm where mm.chat_id = $2)
+				)
+				UPDATE chat_user_view 
+				SET 
+					last_message_id = (select id from last_message),
+					last_message_content = (select content from last_message),
+					last_message_owner_id = (select owner_id from last_message)
+				WHERE user_id = any($1) and id = $2;
+			`, participantIds, chatId)
+	if err != nil {
+		return fmt.Errorf("error during setting last message: %w", err)
+	}
+	return nil
+}
+
 func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatViewRefreshed) error {
 	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		if event.UnreadMessagesAction == UnreadMessagesActionIncrease {
@@ -359,13 +392,6 @@ func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatV
 					return fmt.Errorf("error during increasing unread messages: %w", err)
 				}
 			}
-
-			_, err := tx.ExecContext(ctx, `
-			update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
-		`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
-			if err != nil {
-				return err
-			}
 		} else if event.UnreadMessagesAction == UnreadMessagesActionRefresh {
 			err := m.setUnreadMessages(ctx, tx, event.ParticipantIds, event.ChatId, 0, true, true)
 			if err != nil {
@@ -374,23 +400,15 @@ func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatV
 		}
 
 		_, err := tx.ExecContext(ctx, `
-				with last_message as (
-					select 
-						m.id,
-						m.owner_id, 
-						m.content 
-					from message m 
-					where m.chat_id = $2 and m.id = (select max(mm.id) from message mm where mm.chat_id = $2)
-				)
-				UPDATE chat_user_view 
-				SET 
-					last_message_id = (select id from last_message),
-					last_message_content = (select content from last_message),
-					last_message_owner_id = (select owner_id from last_message)
-				WHERE user_id = any($1) and id = $2;
-			`, event.ParticipantIds, event.ChatId)
+				update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
+			`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
-			return fmt.Errorf("error during setting last message: %w", err)
+			return err
+		}
+
+		err = m.setLastMessage(ctx, tx, event.ParticipantIds, event.ChatId)
+		if err != nil {
+			return err
 		}
 
 		return nil
