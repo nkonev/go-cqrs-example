@@ -98,7 +98,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			ParticipantIdsToAdd: ccd.ParticipantIds,
 		}
 
-		err = cc.Handle(g.Request.Context(), eventBus)
+		err = cc.Handle(g.Request.Context(), eventBus, commonProjection)
 		if err != nil {
 			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatEdit command", "err", err)
 			g.Status(http.StatusInternalServerError)

@@ -57,11 +57,26 @@ const (
 	UnreadMessagesActionIncrease
 )
 
+type LastMessageAction int16
+
+const (
+	LastMessageActionRefresh = iota + 1
+)
+
+type ChatCommonAction int16
+
+const (
+	ChatCommonActionRefresh = iota + 1
+)
+
 type ChatViewRefreshed struct {
 	AdditionalData       *AdditionalData      `json:"additionalData"`
 	ParticipantIds       []int64              `json:"participantIds"`
 	ChatId               int64                `json:"chatId"`
+	Title                string               `json:"title"` // chat title
 	UnreadMessagesAction UnreadMessagesAction `json:"unreadMessagesAction"`
+	LastMessageAction    LastMessageAction    `json:"lastMessageAction"`
+	ChatCommonAction     ChatCommonAction     `json:"chatCommonAction"`
 	IncreaseOn           int                  `json:"increaseOn"`
 	OwnerId              int64                `json:"ownerId"` // owner of message
 }

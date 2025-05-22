@@ -21,6 +21,9 @@ go run . serve
 # create a chat
 curl -i -X POST -H 'Content-Type: application/json' -H 'X-UserId: 1' --url 'http://localhost:8080/chat' -d '{"title": "new chat"}'
 
+# rename the chat
+curl -i -X PUT -H 'Content-Type: application/json' --url 'http://localhost:8080/chat' -d '{"id": 1, "title": "super new chat"}'
+
 # show chats
 curl -Ss -X GET -H 'X-UserId: 1' --url 'http://localhost:8080/chat/search' | jq
 

@@ -29,6 +29,7 @@ create table message(
 -- partition by user_id
 create table chat_user_view(
     id bigint not null,
+    title varchar(512) not null,
     pinned boolean not null default false,
     user_id bigint not null,
     updated_timestamp timestamp not null,

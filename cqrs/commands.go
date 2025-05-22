@@ -86,7 +86,7 @@ func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, dba
 	return chatId, nil
 }
 
-func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface) error {
+func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
 	cc := &ChatEdited{
 		AdditionalData: s.AdditionalData,
 		ChatId:         s.ChatId,
@@ -107,6 +107,24 @@ func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface) error
 		if err != nil {
 			return err
 		}
+	}
+
+	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
+	if err != nil {
+		return err
+	}
+
+	ui := &ChatViewRefreshed{
+		AdditionalData:   s.AdditionalData,
+		ParticipantIds:   participantIds,
+		ChatId:           s.ChatId,
+		ChatCommonAction: ChatCommonActionRefresh,
+		Title:            s.Title,
+	}
+
+	err = eventBus.Publish(ctx, ui)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -170,6 +188,7 @@ func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, db
 		UnreadMessagesAction: UnreadMessagesActionIncrease,
 		IncreaseOn:           1,
 		OwnerId:              s.OwnerId,
+		LastMessageAction:    LastMessageActionRefresh,
 	}
 
 	err = eventBus.Publish(ctx, ui)
@@ -238,6 +257,7 @@ func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, 
 		ChatId:               s.ChatId,
 		UnreadMessagesAction: UnreadMessagesActionRefresh,
 		OwnerId:              userId,
+		LastMessageAction:    LastMessageActionRefresh,
 	}
 
 	err = eventBus.Publish(ctx, ui)

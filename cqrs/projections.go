@@ -190,8 +190,6 @@ func (m *CommonProjection) OnChatEdited(ctx context.Context, event *ChatEdited) 
 	if err != nil {
 		return err
 	}
-	// TODO we should trigger updating chat_user_view
-	//  implying that it's going to send user events
 	logger.LogWithTrace(ctx, m.slogLogger).Info(
 		"Common chat edited",
 		"chat_id", event.ChatId,
@@ -225,13 +223,13 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 			select unnest(cast ($1 as bigint[])) as user_id
 		),
 		input_data as (
-			select c.id as chat_id, false as pinned, u.user_id as user_id, cast ($3 as timestamp) as updated_timestamp
+			select c.id as chat_id, c.title as title, false as pinned, u.user_id as user_id, cast ($3 as timestamp) as updated_timestamp
 			from user_input u
-			cross join (select cc.id from chat_common cc where cc.id = $2) c 
+			cross join (select cc.id, cc.title from chat_common cc where cc.id = $2) c 
 		)
-		insert into chat_user_view(id, pinned, user_id, updated_timestamp) 
-			select chat_id, pinned, user_id, updated_timestamp from input_data
-		on conflict(user_id, id) do update set pinned = excluded.pinned, updated_timestamp = excluded.updated_timestamp
+		insert into chat_user_view(id, title, pinned, user_id, updated_timestamp) 
+			select chat_id, title, pinned, user_id, updated_timestamp from input_data
+		on conflict(user_id, id) do update set pinned = excluded.pinned, title = excluded.title, updated_timestamp = excluded.updated_timestamp
 	`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
 		if err != nil {
 			return err
@@ -392,10 +390,10 @@ func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatV
 			// not owners
 			if len(participantIdsWithoutOwner) > 0 {
 				_, err := tx.ExecContext(ctx, `
-				UPDATE unread_messages_user_view 
-				SET unread_messages = unread_messages + $3
-				WHERE user_id = any($1) and chat_id = $2;
-			`, participantIdsWithoutOwner, event.ChatId, event.IncreaseOn)
+					UPDATE unread_messages_user_view 
+					SET unread_messages = unread_messages + $3
+					WHERE user_id = any($1) and chat_id = $2;
+				`, participantIdsWithoutOwner, event.ChatId, event.IncreaseOn)
 				if err != nil {
 					return fmt.Errorf("error during increasing unread messages: %w", err)
 				}
@@ -404,10 +402,10 @@ func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatV
 			// owner
 			if ownerId != nil {
 				_, err := tx.ExecContext(ctx, `
-				UPDATE unread_messages_user_view 
-				SET last_message_id = (select max(id) from message where chat_id = $2)
-				WHERE (user_id, chat_id) = ($1, $2);
-			`, *ownerId, event.ChatId)
+					UPDATE unread_messages_user_view 
+					SET last_message_id = (select max(id) from message where chat_id = $2)
+					WHERE (user_id, chat_id) = ($1, $2);
+				`, *ownerId, event.ChatId)
 				if err != nil {
 					return fmt.Errorf("error during increasing unread messages: %w", err)
 				}
@@ -419,14 +417,27 @@ func (m *CommonProjection) OnChatViewRefreshed(ctx context.Context, event *ChatV
 			}
 		}
 
+		if event.LastMessageAction == LastMessageActionRefresh {
+			err := m.setLastMessage(ctx, tx, event.ParticipantIds, event.ChatId)
+			if err != nil {
+				return err
+			}
+		}
+
+		if event.ChatCommonAction == ChatCommonActionRefresh {
+			_, err := tx.ExecContext(ctx, `
+					UPDATE chat_user_view 
+					SET title = $3
+					WHERE user_id = any($1) and id = $2;
+				`, event.ParticipantIds, event.ChatId, event.Title)
+			if err != nil {
+				return fmt.Errorf("error during increasing unread messages: %w", err)
+			}
+		}
+
 		_, err := tx.ExecContext(ctx, `
 				update chat_user_view set updated_timestamp = $3 where user_id = any($1) and id = $2
 			`, event.ParticipantIds, event.ChatId, event.AdditionalData.CreatedAt)
-		if err != nil {
-			return err
-		}
-
-		err = m.setLastMessage(ctx, tx, event.ParticipantIds, event.ChatId)
 		if err != nil {
 			return err
 		}
@@ -616,9 +627,8 @@ func (m *CommonProjection) GetChats(ctx context.Context, participantId int64) ([
 	// so querying a page (using keyset) from a large amount of chats is fast
 	// it's the root cause why we use cqrs
 	rows, err := m.db.QueryContext(ctx, `
-		select ch.id, c.title, ch.pinned, coalesce(m.unread_messages, 0), ch.last_message_id, ch.last_message_owner_id, ch.last_message_content
+		select ch.id, ch.title, ch.pinned, coalesce(m.unread_messages, 0), ch.last_message_id, ch.last_message_owner_id, ch.last_message_content
 		from chat_user_view ch
-		join chat_common c on ch.id = c.id
 		join unread_messages_user_view m on (ch.id = m.chat_id and m.user_id = $1)
 		where ch.user_id = $1
 		order by (ch.pinned, ch.updated_timestamp, ch.id) desc 
