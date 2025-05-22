@@ -53,6 +53,20 @@ func (rc *RestClient) CreateChat(ctx context.Context, behalfUserId int64, chatNa
 	return resp.Id, nil
 }
 
+func (rc *RestClient) ChangeChat(ctx context.Context, chatId int64, chatName string) error {
+	req := handlers.ChatEditDto{
+		Id: chatId,
+		ChatCreateDto: handlers.ChatCreateDto{
+			Title: chatName,
+		},
+	}
+	err := queryNoResponse[handlers.ChatEditDto](ctx, rc, 0, "PUT", "/chat", "chat.Change", &req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (rc *RestClient) GetChatsByUserId(ctx context.Context, behalfUserId int64) ([]cqrs.ChatViewDto, error) {
 	return query[any, []cqrs.ChatViewDto](ctx, rc, behalfUserId, "GET", "/chat/search", "chat.Search", nil)
 }
