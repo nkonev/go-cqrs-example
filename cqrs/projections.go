@@ -181,6 +181,26 @@ func (m *CommonProjection) OnChatCreated(ctx context.Context, event *ChatCreated
 	return nil
 }
 
+func (m *CommonProjection) OnChatEdited(ctx context.Context, event *ChatEdited) error {
+	_, err := m.db.ExecContext(ctx, `
+		update chat_common
+		set title = $2
+		where id = $1
+	`, event.ChatId, event.Title)
+	if err != nil {
+		return err
+	}
+	// TODO we should trigger updating chat_user_view
+	//  implying that it's going to send user events
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
+		"Common chat edited",
+		"chat_id", event.ChatId,
+		"title", event.Title,
+	)
+
+	return nil
+}
+
 func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *db.Tx, participantIds []int64, chatId int64) error {
 	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true, false)
 }

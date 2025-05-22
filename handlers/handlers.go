@@ -23,6 +23,11 @@ type ChatCreateDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
+type ChatEditDto struct {
+	Id int64 `json:"id"`
+	ChatCreateDto
+}
+
 type MessageCreateDto struct {
 	Content string `json:"content"`
 }
@@ -74,6 +79,33 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 		m := IdResponse{Id: chatId}
 
 		g.JSON(http.StatusOK, m)
+	})
+
+	ginRouter.PUT("/chat", func(g *gin.Context) {
+		ccd := new(ChatEditDto)
+
+		err := g.Bind(ccd)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding ChatEditDto", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := cqrs.ChatEdit{
+			AdditionalData:      cqrs.GenerateMessageAdditionalData(),
+			ChatId:              ccd.Id,
+			Title:               ccd.Title,
+			ParticipantIdsToAdd: ccd.ParticipantIds,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatEdit command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
 	})
 
 	ginRouter.PUT("/chat/:id/participant", func(g *gin.Context) {

@@ -12,6 +12,13 @@ type ChatCreate struct {
 	ParticipantIds []int64
 }
 
+type ChatEdit struct {
+	ChatId              int64
+	AdditionalData      *AdditionalData
+	Title               string
+	ParticipantIdsToAdd []int64
+}
+
 type ParticipantAdd struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
@@ -77,6 +84,32 @@ func (s *ChatCreate) Handle(ctx context.Context, eventBus EventBusInterface, dba
 	}
 
 	return chatId, nil
+}
+
+func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface) error {
+	cc := &ChatEdited{
+		AdditionalData: s.AdditionalData,
+		ChatId:         s.ChatId,
+		Title:          s.Title,
+	}
+	err := eventBus.Publish(ctx, cc)
+	if err != nil {
+		return err
+	}
+
+	if len(s.ParticipantIdsToAdd) > 0 {
+		pa := &ParticipantsAdded{
+			AdditionalData: s.AdditionalData,
+			ParticipantIds: s.ParticipantIdsToAdd,
+			ChatId:         s.ChatId,
+		}
+		err = eventBus.Publish(ctx, pa)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface) error {

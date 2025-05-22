@@ -227,6 +227,7 @@ func ConfigureEventProcessor(
 	err = eventProcessor.AddHandlersGroup(
 		cfg.KafkaConfig.ConsumerGroup,
 		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatEdited),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantRemoved),
 		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),
