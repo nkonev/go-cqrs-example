@@ -6,8 +6,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"go-cqrs-chat-example/logger"
 	"log/slog"
-	"main.go/logger"
 )
 
 const partitionKey = "partition_key"

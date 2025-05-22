@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spf13/viper"
-	"main.go/app"
+	"go-cqrs-chat-example/app"
 	"strings"
 	"time"
 )

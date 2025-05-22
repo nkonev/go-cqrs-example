@@ -4,12 +4,12 @@ import (
 	"context"
 	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
+	"go-cqrs-chat-example/client"
+	"go-cqrs-chat-example/config"
+	"go-cqrs-chat-example/cqrs"
+	"go-cqrs-chat-example/kafka"
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/client"
-	"main.go/config"
-	"main.go/cqrs"
-	"main.go/kafka"
 	"testing"
 )
 

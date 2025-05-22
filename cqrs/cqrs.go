@@ -7,17 +7,17 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-kafka/v3/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
-	"main.go/db"
-	"main.go/logger"
+	"go-cqrs-chat-example/db"
+	"go-cqrs-chat-example/logger"
 
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
 	wotel "github.com/nkonev/watermill-opentelemetry/pkg/opentelemetry"
+	"go-cqrs-chat-example/config"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/config"
 	"time"
 )
 

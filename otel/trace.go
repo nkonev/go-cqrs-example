@@ -2,6 +2,8 @@ package otel
 
 import (
 	"context"
+	"go-cqrs-chat-example/app"
+	"go-cqrs-chat-example/config"
 	jaegerPropagator "go.opentelemetry.io/contrib/propagators/jaeger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
@@ -14,8 +16,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log/slog"
-	"main.go/app"
-	"main.go/config"
 )
 
 func ConfigureTracePropagator() propagation.TextMapPropagator {

@@ -5,11 +5,11 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"go-cqrs-chat-example/app"
+	"go-cqrs-chat-example/config"
+	"go-cqrs-chat-example/kafka"
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/app"
-	"main.go/config"
-	"main.go/kafka"
 	"os"
 )
 

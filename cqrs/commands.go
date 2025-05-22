@@ -3,7 +3,7 @@ package cqrs
 import (
 	"context"
 	"fmt"
-	"main.go/db"
+	"go-cqrs-chat-example/db"
 )
 
 type ChatCreate struct {

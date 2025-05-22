@@ -1,7 +1,7 @@
 package cqrs
 
 import (
-	"main.go/utils"
+	"go-cqrs-chat-example/utils"
 	"time"
 )
 

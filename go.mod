@@ -1,4 +1,4 @@
-module main.go
+module go-cqrs-chat-example
 
 require (
 	github.com/IBM/sarama v1.45.0

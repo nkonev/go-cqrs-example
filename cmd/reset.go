@@ -4,14 +4,14 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"go-cqrs-chat-example/app"
+	"go-cqrs-chat-example/config"
+	"go-cqrs-chat-example/cqrs"
+	"go-cqrs-chat-example/db"
+	"go-cqrs-chat-example/kafka"
+	"go-cqrs-chat-example/otel"
 	"go.uber.org/fx"
 	"log/slog"
-	"main.go/app"
-	"main.go/config"
-	"main.go/cqrs"
-	"main.go/db"
-	"main.go/kafka"
-	"main.go/otel"
 	"os"
 
 	"github.com/spf13/cobra"

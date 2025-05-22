@@ -3,10 +3,10 @@ package cqrs
 import (
 	"context"
 	"fmt"
+	"go-cqrs-chat-example/db"
+	"go-cqrs-chat-example/logger"
+	"go-cqrs-chat-example/utils"
 	"log/slog"
-	"main.go/db"
-	"main.go/logger"
-	"main.go/utils"
 	"slices"
 )
 
