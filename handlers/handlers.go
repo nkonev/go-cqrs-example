@@ -108,6 +108,32 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 		g.Status(http.StatusOK)
 	})
 
+	ginRouter.DELETE("/chat/:id", func(g *gin.Context) {
+
+		cid := g.Param("id")
+
+		chatId, err := utils.ParseInt64(cid)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := cqrs.ChatRemove{
+			AdditionalData: cqrs.GenerateMessageAdditionalData(),
+			ChatId:         chatId,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatRemove command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
 	ginRouter.PUT("/chat/:id/participant", func(g *gin.Context) {
 		cid := g.Param("id")
 

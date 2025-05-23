@@ -7,8 +7,6 @@ import (
 
 type AdditionalData struct {
 	CreatedAt time.Time `json:"createdAt"`
-	Partition int32     `json:"-"` // set on receive
-	Offset    int64     `json:"-"` // set on receive
 }
 
 type ChatCreated struct {
@@ -21,6 +19,11 @@ type ChatEdited struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ChatId         int64           `json:"chatId"`
 	Title          string          `json:"title"`
+}
+
+type ChatRemoved struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	ChatId         int64           `json:"chatId"`
 }
 
 type ParticipantsAdded struct {
@@ -108,6 +111,10 @@ func (s *ChatEdited) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
+func (s *ChatRemoved) GetPartitionKey() string {
+	return utils.ToString(s.ChatId)
+}
+
 func (s *ParticipantsAdded) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
@@ -136,57 +143,16 @@ func (s *MessageRemoved) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
-func (s *ChatCreated) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *ChatEdited) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *ParticipantsAdded) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *ParticipantRemoved) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *ChatPinned) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *MessageCreated) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *ChatViewRefreshed) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *MessageReaded) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
-func (s *MessageRemoved) SetOffset(partition int32, offset int64) {
-	s.AdditionalData.Partition = partition
-	s.AdditionalData.Offset = offset
-}
-
 func (s *ChatCreated) Name() string {
 	return "chatCreated"
 }
 
 func (s *ChatEdited) Name() string {
 	return "chatEdited"
+}
+
+func (s *ChatRemoved) Name() string {
+	return "chatRemoved"
 }
 
 func (s *ParticipantsAdded) Name() string {

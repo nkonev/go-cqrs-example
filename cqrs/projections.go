@@ -199,6 +199,22 @@ func (m *CommonProjection) OnChatEdited(ctx context.Context, event *ChatEdited) 
 	return nil
 }
 
+func (m *CommonProjection) OnChatRemoved(ctx context.Context, event *ChatRemoved) error {
+	_, err := m.db.ExecContext(ctx, `
+		delete from chat_common
+		where id = $1
+	`, event.ChatId)
+	if err != nil {
+		return err
+	}
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
+		"Common chat removed",
+		"chat_id", event.ChatId,
+	)
+
+	return nil
+}
+
 func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx context.Context, tx *db.Tx, participantIds []int64, chatId int64) error {
 	return m.setUnreadMessages(ctx, tx, participantIds, chatId, 0, true, false)
 }

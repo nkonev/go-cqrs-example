@@ -228,6 +228,7 @@ func ConfigureEventProcessor(
 		cfg.KafkaConfig.ConsumerGroup,
 		cqrs.NewGroupEventHandler(commonProjection.OnChatCreated),
 		cqrs.NewGroupEventHandler(commonProjection.OnChatEdited),
+		cqrs.NewGroupEventHandler(commonProjection.OnChatRemoved),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantAdded),
 		cqrs.NewGroupEventHandler(commonProjection.OnParticipantRemoved),
 		cqrs.NewGroupEventHandler(commonProjection.OnChatPinned),

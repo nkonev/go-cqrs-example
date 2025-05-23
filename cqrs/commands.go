@@ -19,6 +19,11 @@ type ChatEdit struct {
 	ParticipantIdsToAdd []int64
 }
 
+type ChatRemove struct {
+	ChatId         int64
+	AdditionalData *AdditionalData
+}
+
 type ParticipantAdd struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
@@ -126,6 +131,21 @@ func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface, commo
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
+	cc := &ChatRemoved{
+		AdditionalData: s.AdditionalData,
+		ChatId:         s.ChatId,
+	}
+	err := eventBus.Publish(ctx, cc)
+	if err != nil {
+		return err
+	}
+
+	// TODO remove participant's chat view
 
 	return nil
 }
