@@ -36,6 +36,20 @@ type ParticipantDelete struct {
 	ParticipantIds []int64
 }
 
+type MessageCreate struct {
+	AdditionalData *AdditionalData
+	ChatId         int64
+	OwnerId        int64
+	Content        string
+}
+
+type MessageEdit struct {
+	AdditionalData *AdditionalData
+	ChatId         int64
+	MessageId      int64
+	Content        string
+}
+
 type MessageDelete struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
@@ -47,13 +61,6 @@ type ChatPin struct {
 	ChatId         int64
 	Pin            bool
 	ParticipantId  int64
-}
-
-type MessagePost struct {
-	AdditionalData *AdditionalData
-	ChatId         int64
-	OwnerId        int64
-	Content        string
 }
 
 type MessageRead struct {
@@ -187,7 +194,7 @@ func (s *ChatPin) Handle(ctx context.Context, eventBus EventBusInterface) error 
 	return eventBus.Publish(ctx, cp)
 }
 
-func (s *MessagePost) Handle(ctx context.Context, eventBus EventBusInterface, dba *db.DB, commonProjection *CommonProjection) (int64, error) {
+func (s *MessageCreate) Handle(ctx context.Context, eventBus EventBusInterface, dba *db.DB, commonProjection *CommonProjection) (int64, error) {
 	messageId, err := db.TransactWithResult(ctx, dba, func(tx *db.Tx) (int64, error) {
 		return commonProjection.GetNextMessageId(ctx, tx, s.ChatId)
 	})
@@ -275,6 +282,50 @@ func (s *MessageDelete) Handle(ctx context.Context, eventBus EventBusInterface, 
 		return err
 	}
 
+	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
+	if err != nil {
+		return err
+	}
+
+	ui := &ChatViewRefreshed{
+		AdditionalData:       s.AdditionalData,
+		ParticipantIds:       participantIds,
+		ChatId:               s.ChatId,
+		UnreadMessagesAction: UnreadMessagesActionRefresh,
+		OwnerId:              userId,
+		LastMessageAction:    LastMessageActionRefresh,
+	}
+
+	err = eventBus.Publish(ctx, ui)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *MessageEdit) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
+
+	ownerId, err := commonProjection.GetMessageOwner(ctx, s.ChatId, s.MessageId)
+	if err != nil {
+		return err
+	}
+
+	if ownerId != userId {
+		return fmt.Errorf("User %v is not an owner of message %v in chat %v", userId, s.MessageId, s.ChatId)
+	}
+
+	cp := &MessageEdited{
+		AdditionalData: s.AdditionalData,
+		ChatId:         s.ChatId,
+		Id:             s.MessageId,
+		Content:        s.Content,
+	}
+	err = eventBus.Publish(ctx, cp)
+	if err != nil {
+		return err
+	}
+
+	// todo if is' the last chat message update ChatView
 	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
 	if err != nil {
 		return err

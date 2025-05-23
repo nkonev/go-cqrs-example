@@ -32,6 +32,11 @@ type MessageCreateDto struct {
 	Content string `json:"content"`
 }
 
+type MessageEditDto struct {
+	Id int64 `json:"id"`
+	MessageCreateDto
+}
+
 type ParticipantAddDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
@@ -204,6 +209,48 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 		g.Status(http.StatusOK)
 	})
 
+	ginRouter.PUT("/chat/:id/message", func(g *gin.Context) {
+		cid := g.Param("id")
+		chatId, err := utils.ParseInt64(cid)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding chatId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		userId, err := getUserId(g)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error parsing UserId", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		ccd := new(MessageEditDto)
+
+		err = g.Bind(ccd)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding MessageEditDto", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		cc := cqrs.MessageEdit{
+			AdditionalData: cqrs.GenerateMessageAdditionalData(),
+			MessageId:      ccd.Id,
+			ChatId:         chatId,
+			Content:        ccd.Content,
+		}
+
+		err = cc.Handle(g.Request.Context(), eventBus, commonProjection, userId)
+		if err != nil {
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageEdit command", "err", err)
+			g.Status(http.StatusInternalServerError)
+			return
+		}
+
+		g.Status(http.StatusOK)
+	})
+
 	ginRouter.DELETE("/chat/:id/message/:messageId", func(g *gin.Context) {
 		cid := g.Param("id")
 		chatId, err := utils.ParseInt64(cid)
@@ -308,7 +355,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		cc := cqrs.MessagePost{
+		cc := cqrs.MessageCreate{
 			AdditionalData: cqrs.GenerateMessageAdditionalData(),
 			ChatId:         chatId,
 			Content:        mcd.Content,
@@ -317,7 +364,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 
 		mid, err := cc.Handle(g.Request.Context(), eventBus, dbWrapper, commonProjection)
 		if err != nil {
-			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessagePost command", "err", err)
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageCreate command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}

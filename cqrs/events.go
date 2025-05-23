@@ -47,8 +47,15 @@ type ChatPinned struct {
 
 type MessageCreated struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
-	Id             int64           `json:"id"`
+	Id             int64           `json:"id"` // message id
 	OwnerId        int64           `json:"ownerId"`
+	ChatId         int64           `json:"chatId"`
+	Content        string          `json:"content"`
+}
+
+type MessageEdited struct {
+	AdditionalData *AdditionalData `json:"additionalData"`
+	Id             int64           `json:"id"` // message id
 	ChatId         int64           `json:"chatId"`
 	Content        string          `json:"content"`
 }
@@ -131,6 +138,10 @@ func (s *MessageCreated) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
+func (s *MessageEdited) GetPartitionKey() string {
+	return utils.ToString(s.ChatId)
+}
+
 func (s *ChatViewRefreshed) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
@@ -169,6 +180,10 @@ func (s *ChatPinned) Name() string {
 
 func (s *MessageCreated) Name() string {
 	return "messageCreated"
+}
+
+func (s *MessageEdited) Name() string {
+	return "messageEdited"
 }
 
 func (s *ChatViewRefreshed) Name() string {

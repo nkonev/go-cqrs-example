@@ -384,6 +384,24 @@ func (m *CommonProjection) OnMessageCreated(ctx context.Context, event *MessageC
 	return nil
 }
 
+func (m *CommonProjection) OnMessageEdited(ctx context.Context, event *MessageEdited) error {
+	_, err := m.db.ExecContext(ctx, `
+		update message
+		set	content = $3, updated_timestamp = $4
+		where chat_id = $2 and id = $1 
+	`, event.Id, event.ChatId, event.Content, event.AdditionalData.CreatedAt)
+	if err != nil {
+		return err
+	}
+	logger.LogWithTrace(ctx, m.slogLogger).Info(
+		"Handling message edited",
+		"id", event.Id,
+		"chat_id", event.ChatId,
+	)
+
+	return nil
+}
+
 func (m *CommonProjection) setLastMessage(ctx context.Context, tx *db.Tx, participantIds []int64, chatId int64) error {
 
 	_, err := tx.ExecContext(ctx, `
