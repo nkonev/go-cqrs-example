@@ -114,7 +114,7 @@ func (m *CommonProjection) InitializeMessageIdSequenceIfNeed(ctx context.Context
 	}
 
 	if currentGeneratedMessageId == 0 {
-		r := tx.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from message where chat_id = $1", chatId)
+		r = tx.QueryRowContext(ctx, "SELECT coalesce(max(id), 0) from message where chat_id = $1", chatId)
 		if r.Err() != nil {
 			return r.Err()
 		}
@@ -221,7 +221,21 @@ func (m *CommonProjection) initializeMessageUnreadMultipleParticipants(ctx conte
 
 func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *ParticipantsAdded) error {
 	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
-		_, err := tx.ExecContext(ctx, `
+		r := tx.QueryRowContext(ctx, "select exists (select * from chat_common where id = $1)", event.ChatId)
+		if r.Err() != nil {
+			return r.Err()
+		}
+		var exists bool
+		err := r.Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			m.slogLogger.Info("Skipping ParticipantsAdded because there is no chat", "chat_id", event.ChatId)
+			return nil
+		}
+
+		_, err = tx.ExecContext(ctx, `
 		with input_data as (
 			select unnest(cast ($1 as bigint[])) as user_id, cast ($2 as bigint) as chat_id
 		)
