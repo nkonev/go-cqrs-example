@@ -628,6 +628,22 @@ func (m *CommonProjection) GetLastMessageReaded(ctx context.Context, chatId, use
 	return lastReadedMessageId, has, maxMessageId, nil
 }
 
+func (m *CommonProjection) GetLastMessageId(ctx context.Context, chatId int64) (int64, error) {
+	r := m.db.QueryRowContext(ctx, `
+	select coalesce(inn.max_id, 0) 
+	from (select max(id) as max_id from message m where m.chat_id = $1) inn
+	`, chatId)
+	if r.Err() != nil {
+		return 0, r.Err()
+	}
+	var maxMessageId int64
+	err := r.Scan(&maxMessageId)
+	if err != nil {
+		return 0, err
+	}
+	return maxMessageId, nil
+}
+
 type MessageViewDto struct {
 	Id      int64  `json:"id"`
 	OwnerId int64  `json:"ownerId"`

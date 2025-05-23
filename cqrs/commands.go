@@ -325,24 +325,25 @@ func (s *MessageEdit) Handle(ctx context.Context, eventBus EventBusInterface, co
 		return err
 	}
 
-	// todo if is' the last chat message update ChatView
-	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
-	if err != nil {
-		return err
-	}
+	lastMessageId, err := commonProjection.GetLastMessageId(ctx, s.ChatId)
+	if lastMessageId == s.MessageId {
+		// if it's the last chat message then update ChatView
+		participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
+		if err != nil {
+			return err
+		}
 
-	ui := &ChatViewRefreshed{
-		AdditionalData:       s.AdditionalData,
-		ParticipantIds:       participantIds,
-		ChatId:               s.ChatId,
-		UnreadMessagesAction: UnreadMessagesActionRefresh,
-		OwnerId:              userId,
-		LastMessageAction:    LastMessageActionRefresh,
-	}
+		ui := &ChatViewRefreshed{
+			AdditionalData:    s.AdditionalData,
+			ParticipantIds:    participantIds,
+			ChatId:            s.ChatId,
+			LastMessageAction: LastMessageActionRefresh,
+		}
 
-	err = eventBus.Publish(ctx, ui)
-	if err != nil {
-		return err
+		err = eventBus.Publish(ctx, ui)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

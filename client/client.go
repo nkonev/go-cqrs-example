@@ -90,6 +90,16 @@ func (rc *RestClient) CreateMessage(ctx context.Context, behalfUserId int64, cha
 	return resp.Id, nil
 }
 
+func (rc *RestClient) EditMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64, text string) error {
+	req := handlers.MessageEditDto{
+		Id: messageId,
+		MessageCreateDto: handlers.MessageCreateDto{
+			Content: text,
+		},
+	}
+	return queryNoResponse[handlers.MessageEditDto](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/message", "message.Edit", &req)
+}
+
 func (rc *RestClient) DeleteMessage(ctx context.Context, behalfUserId int64, chatId, messageId int64) error {
 	return queryNoResponse[any](ctx, rc, behalfUserId, "DELETE", "/chat/"+utils.ToString(chatId)+"/message/"+utils.ToString(messageId), "message.Delete", nil)
 }
