@@ -19,7 +19,7 @@ type ChatEdit struct {
 	ParticipantIdsToAdd []int64
 }
 
-type ChatRemove struct {
+type ChatDelete struct {
 	ChatId         int64
 	AdditionalData *AdditionalData
 }
@@ -30,13 +30,13 @@ type ParticipantAdd struct {
 	ParticipantIds []int64
 }
 
-type ParticipantRemove struct {
+type ParticipantDelete struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
 	ParticipantIds []int64
 }
 
-type MessageRemove struct {
+type MessageDelete struct {
 	AdditionalData *AdditionalData
 	ChatId         int64
 	MessageId      int64
@@ -136,8 +136,8 @@ func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface, commo
 	return nil
 }
 
-func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
-	cc := &ChatRemoved{
+func (s *ChatDelete) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
+	cc := &ChatDeleted{
 		AdditionalData: s.AdditionalData,
 		ChatId:         s.ChatId,
 	}
@@ -151,7 +151,7 @@ func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface, com
 		return err
 	}
 
-	pa := &ParticipantRemoved{
+	pa := &ParticipantDeleted{
 		AdditionalData: s.AdditionalData,
 		ParticipantIds: participantIds,
 		ChatId:         s.ChatId,
@@ -168,8 +168,8 @@ func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface)
 	return eventBus.Publish(ctx, pa)
 }
 
-func (s *ParticipantRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
-	pa := &ParticipantRemoved{
+func (s *ParticipantDelete) Handle(ctx context.Context, eventBus EventBusInterface) error {
+	pa := &ParticipantDeleted{
 		AdditionalData: s.AdditionalData,
 		ParticipantIds: s.ParticipantIds,
 		ChatId:         s.ChatId,
@@ -254,7 +254,7 @@ func (s *MessageRead) Handle(ctx context.Context, eventBus EventBusInterface, co
 	return nil
 }
 
-func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
+func (s *MessageDelete) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection, userId int64) error {
 
 	ownerId, err := commonProjection.GetMessageOwner(ctx, s.ChatId, s.MessageId)
 	if err != nil {
@@ -265,7 +265,7 @@ func (s *MessageRemove) Handle(ctx context.Context, eventBus EventBusInterface, 
 		return fmt.Errorf("User %v is not an owner of message %v in chat %v", userId, s.MessageId, s.ChatId)
 	}
 
-	cp := &MessageRemoved{
+	cp := &MessageDeleted{
 		AdditionalData: s.AdditionalData,
 		ChatId:         s.ChatId,
 		MessageId:      s.MessageId,

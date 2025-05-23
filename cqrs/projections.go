@@ -199,7 +199,7 @@ func (m *CommonProjection) OnChatEdited(ctx context.Context, event *ChatEdited) 
 	return nil
 }
 
-func (m *CommonProjection) OnChatRemoved(ctx context.Context, event *ChatRemoved) error {
+func (m *CommonProjection) OnChatRemoved(ctx context.Context, event *ChatDeleted) error {
 	_, err := m.db.ExecContext(ctx, `
 		delete from chat_common
 		where id = $1
@@ -276,7 +276,7 @@ func (m *CommonProjection) OnParticipantAdded(ctx context.Context, event *Partic
 	return nil
 }
 
-func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *ParticipantRemoved) error {
+func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *ParticipantDeleted) error {
 	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 		delete from chat_participant where user_id = any($1) and chat_id = $2
@@ -307,7 +307,7 @@ func (m *CommonProjection) OnParticipantRemoved(ctx context.Context, event *Part
 	return nil
 }
 
-func (m *CommonProjection) OnMessageRemoved(ctx context.Context, event *MessageRemoved) error {
+func (m *CommonProjection) OnMessageRemoved(ctx context.Context, event *MessageDeleted) error {
 	errOuter := db.Transact(ctx, m.db, func(tx *db.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 		delete from message where (id, chat_id) = ($1, $2)

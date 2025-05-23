@@ -237,7 +237,7 @@ func TestPinChat(t *testing.T) {
 
 }
 
-func TestRemoveChat(t *testing.T) {
+func TestDeleteChat(t *testing.T) {
 	startAppFull(t, func(
 		slogLogger *slog.Logger,
 		cfg *config.AppConfig,
@@ -302,7 +302,7 @@ func TestRemoveChat(t *testing.T) {
 		assert.Equal(t, chat1Name, chat1OfUser2.Title)
 		assert.Equal(t, int64(1), chat1OfUser2.UnreadMessages)
 
-		err = restClient.RemoveChat(ctx, chat1Id)
+		err = restClient.DeleteChat(ctx, chat1Id)
 		assert.NoError(t, err, "error in removing chats")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
@@ -317,7 +317,7 @@ func TestRemoveChat(t *testing.T) {
 
 }
 
-func TestAddingParticipant(t *testing.T) {
+func TestAddParticipant(t *testing.T) {
 	startAppFull(t, func(
 		slogLogger *slog.Logger,
 		cfg *config.AppConfig,
@@ -383,7 +383,7 @@ func TestAddingParticipant(t *testing.T) {
 		assert.Equal(t, message1.Content, *chat1OfUser2.LastMessageContent)
 
 		chat1NewName := "new chat 1 renamed"
-		err = restClient.ChangeChat(ctx, user1, chat1NewName)
+		err = restClient.EditChat(ctx, user1, chat1NewName)
 		assert.NoError(t, err, "error in changing chat")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
@@ -407,7 +407,7 @@ func TestAddingParticipant(t *testing.T) {
 	})
 }
 
-func TestRemovingParticipant(t *testing.T) {
+func TestDeleteParticipant(t *testing.T) {
 	startAppFull(t, func(
 		slogLogger *slog.Logger,
 		cfg *config.AppConfig,
@@ -472,7 +472,7 @@ func TestRemovingParticipant(t *testing.T) {
 		assert.Equal(t, message1.Id, *chat1OfUser2.LastMessageId)
 		assert.Equal(t, message1.Content, *chat1OfUser2.LastMessageContent)
 
-		err = restClient.RemoveChatParticipants(ctx, chat1Id, []int64{user2})
+		err = restClient.DeleteChatParticipants(ctx, chat1Id, []int64{user2})
 		assert.NoError(t, err, "error in removing chat participants")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 

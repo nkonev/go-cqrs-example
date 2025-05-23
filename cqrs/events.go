@@ -21,7 +21,7 @@ type ChatEdited struct {
 	Title          string          `json:"title"`
 }
 
-type ChatRemoved struct {
+type ChatDeleted struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ChatId         int64           `json:"chatId"`
 }
@@ -32,7 +32,7 @@ type ParticipantsAdded struct {
 	ChatId         int64           `json:"chatId"`
 }
 
-type ParticipantRemoved struct {
+type ParticipantDeleted struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ParticipantIds []int64         `json:"participantIds"`
 	ChatId         int64           `json:"chatId"`
@@ -91,7 +91,7 @@ type MessageReaded struct {
 	MessageId      int64           `json:"messageId"`
 }
 
-type MessageRemoved struct {
+type MessageDeleted struct {
 	AdditionalData *AdditionalData `json:"additionalData"`
 	ChatId         int64           `json:"chatId"`
 	MessageId      int64           `json:"messageId"`
@@ -111,7 +111,7 @@ func (s *ChatEdited) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
-func (s *ChatRemoved) GetPartitionKey() string {
+func (s *ChatDeleted) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
@@ -119,7 +119,7 @@ func (s *ParticipantsAdded) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
-func (s *ParticipantRemoved) GetPartitionKey() string {
+func (s *ParticipantDeleted) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
@@ -139,7 +139,7 @@ func (s *MessageReaded) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
-func (s *MessageRemoved) GetPartitionKey() string {
+func (s *MessageDeleted) GetPartitionKey() string {
 	return utils.ToString(s.ChatId)
 }
 
@@ -151,16 +151,16 @@ func (s *ChatEdited) Name() string {
 	return "chatEdited"
 }
 
-func (s *ChatRemoved) Name() string {
-	return "chatRemoved"
+func (s *ChatDeleted) Name() string {
+	return "chatDeleted"
 }
 
 func (s *ParticipantsAdded) Name() string {
 	return "participantsAdded"
 }
 
-func (s *ParticipantRemoved) Name() string {
-	return "participantRemoved"
+func (s *ParticipantDeleted) Name() string {
+	return "participantDeleted"
 }
 
 func (s *ChatPinned) Name() string {
@@ -179,6 +179,6 @@ func (s *MessageReaded) Name() string {
 	return "messageReaded"
 }
 
-func (s *MessageRemoved) Name() string {
-	return "messageRemoved"
+func (s *MessageDeleted) Name() string {
+	return "messageDeleted"
 }

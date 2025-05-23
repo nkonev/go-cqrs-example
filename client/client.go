@@ -53,14 +53,14 @@ func (rc *RestClient) CreateChat(ctx context.Context, behalfUserId int64, chatNa
 	return resp.Id, nil
 }
 
-func (rc *RestClient) ChangeChat(ctx context.Context, chatId int64, chatName string) error {
+func (rc *RestClient) EditChat(ctx context.Context, chatId int64, chatName string) error {
 	req := handlers.ChatEditDto{
 		Id: chatId,
 		ChatCreateDto: handlers.ChatCreateDto{
 			Title: chatName,
 		},
 	}
-	err := queryNoResponse[handlers.ChatEditDto](ctx, rc, 0, "PUT", "/chat", "chat.Change", &req)
+	err := queryNoResponse[handlers.ChatEditDto](ctx, rc, 0, "PUT", "/chat", "chat.Edit", &req)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (rc *RestClient) PinChat(ctx context.Context, behalfUserId int64, chatId in
 	return queryNoResponse[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/pin?pin="+utils.ToString(pin), "chat.Pin", nil)
 }
 
-func (rc *RestClient) RemoveChat(ctx context.Context, chatId int64) error {
+func (rc *RestClient) DeleteChat(ctx context.Context, chatId int64) error {
 	return queryNoResponse[any](ctx, rc, 0, "DELETE", "/chat/"+utils.ToString(chatId), "chat.Delete", nil)
 }
 
@@ -105,11 +105,11 @@ func (rc *RestClient) AddChatParticipants(ctx context.Context, chatId int64, par
 	return queryNoResponse[handlers.ParticipantAddDto](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
 }
 
-func (rc *RestClient) RemoveChatParticipants(ctx context.Context, chatId int64, participantIds []int64) error {
-	req := handlers.ParticipantRemoveDto{
+func (rc *RestClient) DeleteChatParticipants(ctx context.Context, chatId int64, participantIds []int64) error {
+	req := handlers.ParticipantDeleteDto{
 		ParticipantIds: participantIds,
 	}
-	return queryNoResponse[handlers.ParticipantRemoveDto](ctx, rc, 0, "DELETE", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Delete", &req)
+	return queryNoResponse[handlers.ParticipantDeleteDto](ctx, rc, 0, "DELETE", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Delete", &req)
 }
 
 func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]int64, error) {

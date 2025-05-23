@@ -36,7 +36,7 @@ type ParticipantAddDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
-type ParticipantRemoveDto struct {
+type ParticipantDeleteDto struct {
 	ParticipantIds []int64 `json:"participantIds"`
 }
 
@@ -119,14 +119,14 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		cc := cqrs.ChatRemove{
+		cc := cqrs.ChatDelete{
 			AdditionalData: cqrs.GenerateMessageAdditionalData(),
 			ChatId:         chatId,
 		}
 
 		err = cc.Handle(g.Request.Context(), eventBus, commonProjection)
 		if err != nil {
-			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatRemove command", "err", err)
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ChatDelete command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -179,16 +179,16 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		ccd := new(ParticipantRemoveDto)
+		ccd := new(ParticipantDeleteDto)
 
 		err = g.Bind(ccd)
 		if err != nil {
-			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding ParticipantRemoveDto", "err", err)
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error binding ParticipantDeleteDto", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
 
-		cc := cqrs.ParticipantRemove{
+		cc := cqrs.ParticipantDelete{
 			AdditionalData: cqrs.GenerateMessageAdditionalData(),
 			ParticipantIds: ccd.ParticipantIds,
 			ChatId:         chatId,
@@ -196,7 +196,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 
 		err = cc.Handle(g.Request.Context(), eventBus)
 		if err != nil {
-			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ParticipantRemove command", "err", err)
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending ParticipantDelete command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
@@ -228,7 +228,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 			return
 		}
 
-		cc := cqrs.MessageRemove{
+		cc := cqrs.MessageDelete{
 			AdditionalData: cqrs.GenerateMessageAdditionalData(),
 			MessageId:      messageId,
 			ChatId:         chatId,
@@ -236,7 +236,7 @@ func makeHttpHandlers(ginRouter *gin.Engine, slogLogger *slog.Logger, eventBus c
 
 		err = cc.Handle(g.Request.Context(), eventBus, commonProjection, userId)
 		if err != nil {
-			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageRemove command", "err", err)
+			logger.LogWithTrace(g.Request.Context(), slogLogger).Error("Error sending MessageDelete command", "err", err)
 			g.Status(http.StatusInternalServerError)
 			return
 		}
