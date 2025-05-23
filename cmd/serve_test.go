@@ -108,7 +108,7 @@ func TestUnreads(t *testing.T) {
 		_, err = restClient.CreateMessage(ctx, user1, chat1Id, message2Text)
 		assert.NoError(t, err, "error in creating message")
 
-		message3Text := "new message 2"
+		message3Text := "new message 3"
 		messageId3, err := restClient.CreateMessage(ctx, user1, chat1Id, message3Text)
 		assert.NoError(t, err, "error in creating message")
 		assert.True(t, messageId3 > 0)
@@ -509,8 +509,11 @@ func TestEditMessage(t *testing.T) {
 		assert.Equal(t, chat1Name, title)
 
 		message1Text := "new message 1"
-
 		message1Id, err := restClient.CreateMessage(ctx, user1, chat1Id, message1Text)
+		assert.NoError(t, err, "error in creating message")
+
+		message2Text := "new message 2"
+		message2Id, err := restClient.CreateMessage(ctx, user1, chat1Id, message2Text)
 		assert.NoError(t, err, "error in creating message")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
@@ -520,17 +523,19 @@ func TestEditMessage(t *testing.T) {
 		chat1OfUser1 := user1Chats[0]
 		assert.Equal(t, chat1Name, chat1OfUser1.Title)
 		assert.Equal(t, int64(0), chat1OfUser1.UnreadMessages)
-		assert.Equal(t, message1Text, *chat1OfUser1.LastMessageContent)
+		assert.Equal(t, message2Text, *chat1OfUser1.LastMessageContent)
 
 		chat1Messages, err := restClient.GetMessages(ctx, user1, chat1Id)
 		assert.NoError(t, err, "error in getting messages")
-		assert.Equal(t, 1, len(chat1Messages))
-		message1 := chat1Messages[0]
+		assert.Equal(t, 2, len(chat1Messages))
+		message1 := chat1Messages[1]
+		message2 := chat1Messages[0]
 		assert.Equal(t, message1Id, message1.Id)
 		assert.Equal(t, message1Text, message1.Content)
+		assert.Equal(t, message2Id, message2.Id)
+		assert.Equal(t, message2Text, message2.Content)
 
 		message1TextNew := "new message 1 edited"
-
 		err = restClient.EditMessage(ctx, user1, chat1Id, message1.Id, message1TextNew)
 		assert.NoError(t, err, "error in creating message")
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
@@ -541,13 +546,39 @@ func TestEditMessage(t *testing.T) {
 		chat1OfUser1New := user1ChatsNew[0]
 		assert.Equal(t, chat1Name, chat1OfUser1New.Title)
 		assert.Equal(t, int64(0), chat1OfUser1New.UnreadMessages)
-		assert.Equal(t, message1TextNew, *chat1OfUser1New.LastMessageContent)
+		assert.Equal(t, message2Text, *chat1OfUser1New.LastMessageContent)
 
 		chat1MessagesNew, err := restClient.GetMessages(ctx, user1, chat1Id)
 		assert.NoError(t, err, "error in getting messages")
-		assert.Equal(t, 1, len(chat1MessagesNew))
-		message1Mew := chat1MessagesNew[0]
-		assert.Equal(t, message1Id, message1Mew.Id)
-		assert.Equal(t, message1TextNew, message1Mew.Content)
+		assert.Equal(t, 2, len(chat1MessagesNew))
+		message1New := chat1MessagesNew[1]
+		message2New := chat1MessagesNew[0]
+		assert.Equal(t, message1Id, message1New.Id)
+		assert.Equal(t, message1TextNew, message1New.Content)
+		assert.Equal(t, message2Id, message2New.Id)
+		assert.Equal(t, message2Text, message2New.Content)
+
+		message2TextNew := "new message 1 edited"
+		err = restClient.EditMessage(ctx, user1, chat1Id, message2.Id, message2TextNew)
+		assert.NoError(t, err, "error in creating message")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		user1ChatsNew2, err := restClient.GetChatsByUserId(ctx, user1)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user1ChatsNew2))
+		chat1OfUser1New2 := user1ChatsNew2[0]
+		assert.Equal(t, chat1Name, chat1OfUser1New2.Title)
+		assert.Equal(t, int64(0), chat1OfUser1New2.UnreadMessages)
+		assert.Equal(t, message2TextNew, *chat1OfUser1New2.LastMessageContent)
+
+		chat1MessagesNew2, err := restClient.GetMessages(ctx, user1, chat1Id)
+		assert.NoError(t, err, "error in getting messages")
+		assert.Equal(t, 2, len(chat1MessagesNew2))
+		message1New2 := chat1MessagesNew2[1]
+		message2New2 := chat1MessagesNew2[0]
+		assert.Equal(t, message1Id, message1New2.Id)
+		assert.Equal(t, message1TextNew, message1New2.Content)
+		assert.Equal(t, message2Id, message2New2.Id)
+		assert.Equal(t, message2TextNew, message2New2.Content)
 	})
 }
