@@ -71,7 +71,7 @@ func TestUnreads(t *testing.T) {
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
 		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
-		assert.NoError(t, err, "error in char participants")
+		assert.NoError(t, err, "error in chat participants")
 		assert.Equal(t, []int64{user1, user2, user3}, chat1Participants)
 
 		user2ChatsNew, err := restClient.GetChatsByUserId(ctx, user2)
@@ -145,6 +145,98 @@ func TestUnreads(t *testing.T) {
 
 }
 
+func TestPinChat(t *testing.T) {
+	startAppFull(t, func(
+		slogLogger *slog.Logger,
+		cfg *config.AppConfig,
+		restClient *client.RestClient,
+		saramaClient sarama.Client,
+		m *cqrs.CommonProjection,
+		lc fx.Lifecycle,
+	) {
+		var user1 int64 = 1
+		var user2 int64 = 2
+
+		chat1Name := "new chat 1"
+		ctx := context.Background()
+
+		chat1Id, err := restClient.CreateChat(ctx, user1, chat1Name)
+		assert.NoError(t, err, "error in creating chat")
+		assert.True(t, chat1Id > 0)
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		title, err := m.GetChatByUserIdAndChatId(ctx, user1, chat1Id)
+		assert.NoError(t, err, "error in getting chat")
+		assert.Equal(t, chat1Name, title)
+
+		message1Text := "new message 1"
+
+		message1Id, err := restClient.CreateMessage(ctx, user1, chat1Id, message1Text)
+		assert.NoError(t, err, "error in creating message")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		user1Chats, err := restClient.GetChatsByUserId(ctx, user1)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user1Chats))
+		chat1OfUser1 := user1Chats[0]
+		assert.Equal(t, false, chat1OfUser1.Pinned)
+		assert.Equal(t, chat1Name, chat1OfUser1.Title)
+		assert.Equal(t, int64(0), chat1OfUser1.UnreadMessages)
+
+		user2Chats, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 0, len(user2Chats))
+
+		chat1Messages, err := restClient.GetMessages(ctx, user1, chat1Id)
+		assert.NoError(t, err, "error in getting messages")
+		assert.Equal(t, 1, len(chat1Messages))
+		message1 := chat1Messages[0]
+		assert.Equal(t, message1Id, message1.Id)
+		assert.Equal(t, message1Text, message1.Content)
+
+		err = restClient.AddChatParticipants(ctx, chat1Id, []int64{user2})
+		assert.NoError(t, err, "error in adding participants")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
+		assert.NoError(t, err, "error in chat participants")
+		assert.Equal(t, []int64{user1, user2}, chat1Participants)
+
+		user2ChatsNew, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user2ChatsNew))
+		chat1OfUser2 := user2ChatsNew[0]
+		assert.Equal(t, false, chat1OfUser2.Pinned)
+		assert.Equal(t, chat1Name, chat1OfUser2.Title)
+		assert.Equal(t, int64(1), chat1OfUser2.UnreadMessages)
+
+		err = restClient.PinChat(ctx, user1, chat1Id, true)
+		assert.NoError(t, err, "error in pinning chats")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		user1ChatsNew2, err := restClient.GetChatsByUserId(ctx, user1)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user1ChatsNew2))
+		chat1OfUser1New2 := user1ChatsNew2[0]
+		assert.Equal(t, true, chat1OfUser1New2.Pinned)
+		assert.Equal(t, chat1Name, chat1OfUser1New2.Title)
+		assert.Equal(t, int64(0), chat1OfUser1New2.UnreadMessages)
+		assert.Equal(t, message1.Id, *chat1OfUser1New2.LastMessageId)
+		assert.Equal(t, message1.Content, *chat1OfUser1New2.LastMessageContent)
+
+		user2ChatsNew2, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user2ChatsNew2))
+		chat1OfUser2New2 := user2ChatsNew2[0]
+		assert.Equal(t, false, chat1OfUser2New2.Pinned)
+		assert.Equal(t, chat1Name, chat1OfUser2New2.Title)
+		assert.Equal(t, int64(1), chat1OfUser2New2.UnreadMessages)
+		assert.Equal(t, message1.Id, *chat1OfUser2New2.LastMessageId)
+		assert.Equal(t, message1.Content, *chat1OfUser2New2.LastMessageContent)
+	})
+
+}
+
 func TestAddingParticipant(t *testing.T) {
 	startAppFull(t, func(
 		slogLogger *slog.Logger,
@@ -198,7 +290,7 @@ func TestAddingParticipant(t *testing.T) {
 		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
 
 		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
-		assert.NoError(t, err, "error in char participants")
+		assert.NoError(t, err, "error in chat participants")
 		assert.Equal(t, []int64{user1, user2}, chat1Participants)
 
 		user2ChatsNew, err := restClient.GetChatsByUserId(ctx, user2)
@@ -233,5 +325,83 @@ func TestAddingParticipant(t *testing.T) {
 		assert.Equal(t, message1.Id, *chat1OfUser2New2.LastMessageId)
 		assert.Equal(t, message1.Content, *chat1OfUser2New2.LastMessageContent)
 	})
+}
 
+func TestRemovingParticipant(t *testing.T) {
+	startAppFull(t, func(
+		slogLogger *slog.Logger,
+		cfg *config.AppConfig,
+		restClient *client.RestClient,
+		saramaClient sarama.Client,
+		m *cqrs.CommonProjection,
+		lc fx.Lifecycle,
+	) {
+		var user1 int64 = 1
+		var user2 int64 = 2
+
+		chat1Name := "new chat 1"
+		ctx := context.Background()
+
+		chat1Id, err := restClient.CreateChat(ctx, user1, chat1Name)
+		assert.NoError(t, err, "error in creating chat")
+		assert.True(t, chat1Id > 0)
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		title, err := m.GetChatByUserIdAndChatId(ctx, user1, chat1Id)
+		assert.NoError(t, err, "error in getting chat")
+		assert.Equal(t, chat1Name, title)
+
+		message1Text := "new message 1"
+
+		message1Id, err := restClient.CreateMessage(ctx, user1, chat1Id, message1Text)
+		assert.NoError(t, err, "error in creating message")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		user1Chats, err := restClient.GetChatsByUserId(ctx, user1)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user1Chats))
+		chat1OfUser1 := user1Chats[0]
+		assert.Equal(t, chat1Name, chat1OfUser1.Title)
+		assert.Equal(t, int64(0), chat1OfUser1.UnreadMessages)
+
+		user2Chats, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 0, len(user2Chats))
+
+		chat1Messages, err := restClient.GetMessages(ctx, user1, chat1Id)
+		assert.NoError(t, err, "error in getting messages")
+		assert.Equal(t, 1, len(chat1Messages))
+		message1 := chat1Messages[0]
+		assert.Equal(t, message1Id, message1.Id)
+		assert.Equal(t, message1Text, message1.Content)
+
+		err = restClient.AddChatParticipants(ctx, chat1Id, []int64{user2})
+		assert.NoError(t, err, "error in adding participants")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		chat1Participants, err := restClient.GetChatParticipants(ctx, chat1Id)
+		assert.NoError(t, err, "error in chat participants")
+		assert.Equal(t, []int64{user1, user2}, chat1Participants)
+
+		user2ChatsNew, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 1, len(user2ChatsNew))
+		chat1OfUser2 := user2ChatsNew[0]
+		assert.Equal(t, chat1Name, chat1OfUser2.Title)
+		assert.Equal(t, int64(1), chat1OfUser2.UnreadMessages)
+		assert.Equal(t, message1.Id, *chat1OfUser2.LastMessageId)
+		assert.Equal(t, message1.Content, *chat1OfUser2.LastMessageContent)
+
+		err = restClient.RemoveChatParticipants(ctx, chat1Id, []int64{user2})
+		assert.NoError(t, err, "error in removing chat participants")
+		assert.NoError(t, kafka.WaitForAllEventsProcessed(slogLogger, cfg, saramaClient, lc), "error in waiting for processing events")
+
+		user2ChatsNew2, err := restClient.GetChatsByUserId(ctx, user2)
+		assert.NoError(t, err, "error in getting chats")
+		assert.Equal(t, 0, len(user2ChatsNew2))
+
+		chat1Participants2, err := restClient.GetChatParticipants(ctx, chat1Id)
+		assert.NoError(t, err, "error in chat participants")
+		assert.Equal(t, []int64{user1}, chat1Participants2)
+	})
 }

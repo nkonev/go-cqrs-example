@@ -114,6 +114,7 @@ func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface, commo
 		}
 	}
 
+	// TODO paginate
 	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
 	if err != nil {
 		return err
@@ -135,7 +136,7 @@ func (s *ChatEdit) Handle(ctx context.Context, eventBus EventBusInterface, commo
 	return nil
 }
 
-func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface) error {
+func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface, commonProjection *CommonProjection) error {
 	cc := &ChatRemoved{
 		AdditionalData: s.AdditionalData,
 		ChatId:         s.ChatId,
@@ -145,9 +146,17 @@ func (s *ChatRemove) Handle(ctx context.Context, eventBus EventBusInterface) err
 		return err
 	}
 
-	// TODO remove participant's chat view
+	participantIds, err := commonProjection.GetParticipants(ctx, s.ChatId)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	pa := &ParticipantRemoved{
+		AdditionalData: s.AdditionalData,
+		ParticipantIds: participantIds,
+		ChatId:         s.ChatId,
+	}
+	return eventBus.Publish(ctx, pa)
 }
 
 func (s *ParticipantAdd) Handle(ctx context.Context, eventBus EventBusInterface) error {

@@ -67,6 +67,10 @@ func (rc *RestClient) ChangeChat(ctx context.Context, chatId int64, chatName str
 	return nil
 }
 
+func (rc *RestClient) PinChat(ctx context.Context, behalfUserId int64, chatId int64, pin bool) error {
+	return queryNoResponse[any](ctx, rc, behalfUserId, "PUT", "/chat/"+utils.ToString(chatId)+"/pin?pin="+utils.ToString(pin), "chat.Pin", nil)
+}
+
 func (rc *RestClient) GetChatsByUserId(ctx context.Context, behalfUserId int64) ([]cqrs.ChatViewDto, error) {
 	return query[any, []cqrs.ChatViewDto](ctx, rc, behalfUserId, "GET", "/chat/search", "chat.Search", nil)
 }
@@ -95,6 +99,13 @@ func (rc *RestClient) AddChatParticipants(ctx context.Context, chatId int64, par
 		ParticipantIds: participantIds,
 	}
 	return queryNoResponse[handlers.ParticipantAddDto](ctx, rc, 0, "PUT", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Add", &req)
+}
+
+func (rc *RestClient) RemoveChatParticipants(ctx context.Context, chatId int64, participantIds []int64) error {
+	req := handlers.ParticipantRemoveDto{
+		ParticipantIds: participantIds,
+	}
+	return queryNoResponse[handlers.ParticipantRemoveDto](ctx, rc, 0, "DELETE", "/chat/"+utils.ToString(chatId)+"/participant", "participants.Delete", &req)
 }
 
 func (rc *RestClient) GetChatParticipants(ctx context.Context, chatId int64) ([]int64, error) {
